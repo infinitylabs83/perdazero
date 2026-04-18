@@ -48,7 +48,8 @@ const { useState, useEffect, useRef, useCallback } = React;
 // ==========================================
 const SUPABASE_URL = 'https://zggpewiirthwrphhdokp.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpnZ3Bld2lpcnRod3JwaGhkb2twIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyODg0ODksImV4cCI6MjA5MTg2NDQ4OX0.zVMMGDmJe_MbUxLR2rSqTljwnBRkzPJ7tbYmIfOHMFY';
-const APP_URL = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '') || window.location.origin; // URL base incluindo subpasta
+// URL base do app — detecta automaticamente
+const APP_URL = (() => { const url = window.location.href.split('?')[0]; return url.endsWith('/') ? url.slice(0, -1) : url; })();
 
 let supabase;
 try {
@@ -1057,12 +1058,15 @@ function App() {
     };
 
     const baixarQR = (slug, nome) => {
-      const appUrl = `${APP_URL}?loja=${slug}`;
-      const urlEncoded = encodeURIComponent(appUrl);
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=20&data=${urlEncoded}&format=png`;
-      // Abre a imagem em nova aba — no celular: toque e segure -> Salvar imagem
-      window.open(qrUrl, '_blank');
-      setTimeout(() => alert('📱 Toque e segure na imagem que abriu e escolha "Salvar imagem" para baixar o QR Code para impressão.'), 800);
+      const url = encodeURIComponent(`${APP_URL}?loja=${slug}`);
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=20&data=${url}`;
+      const link = document.createElement('a');
+      link.href = qrUrl;
+      link.download = `qrcode-${nome.replace(/\s+/g,'-').toLowerCase()}.png`;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     };
 
     return (

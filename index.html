@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#00A86B">
+  <title>PerdaZero</title>
+
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- QR Code generator -->
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-font-smoothing: antialiased;
+    }
+    .bg-brand { background-color: #00A86B; }
+    .text-brand { color: #00A86B; }
+    .border-brand { border-color: #00A86B; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .chart-container { position: relative; width: 100%; height: 200px; }
+    .animate-slide-up { animation: slideUp 0.3s ease-out forwards; }
+    .animate-fade-in { animation: fadeIn 0.2s ease-out forwards; }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .pb-safe { padding-bottom: calc(1.5rem + env(safe-area-inset-bottom)); }
+    .pt-safe { padding-top: env(safe-area-inset-top); }
+    .trial-bar { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+  </style>
+</head>
+<body class="bg-gray-200 w-screen overflow-hidden flex justify-center" style="height:100vh;height:100dvh;">
+<div id="root" class="w-full h-full max-w-md bg-white shadow-2xl overflow-hidden flex flex-col relative"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ==========================================
+// ⚠️  SUBSTITUA COM SUAS CHAVES DO SUPABASE
+// ==========================================
+const SUPABASE_URL = 'https://zggpewiirthwrphhdokp.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpnZ3Bld2lpcnRod3JwaGhkb2twIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyODg0ODksImV4cCI6MjA5MTg2NDQ4OX0.zVMMGDmJe_MbUxLR2rSqTljwnBRkzPJ7tbYmIfOHMFY';
+const APP_URL = window.location.origin; // URL base do app (para gerar QR codes)
+
+let supabase;
+try {
+  if (SUPABASE_URL.includes('supabase.co')) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  }
+} catch(e) { console.error('Supabase init error:', e); }
+
+// ==========================================
+// UTILITÁRIOS
+// ==========================================
+const fmt = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+
+const fmtDataHora = (ts) => {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const hoje = new Date();
+  const ontem = new Date(); ontem.setDate(hoje.getDate() - 1);
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === hoje.toDateString()) return `Hoje, ${hora}`;
+  if (d.toDateString() === ontem.toDateString()) return `Ontem, ${hora}`;
+  return `${d.toLocaleDateString('pt-BR')} às ${hora}`;
+};
+
+const diasRestantesTrial = (expira) => {
+  if (!expira) return 0;
+  const diff = new Date(expira) - new Date();
+  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+};
+
+// ==========================================
+// ÍCONES
+// ==========================================
+const Ico = {
+  Shield: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="100%" height="100%"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>,
+  Back: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>,
+  Logout: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+  Camera: ({size=24}) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width={size} height={size}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>,
+  Delete: ({size=24}) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width={size} height={size}><path d="M20 5H9l-7 7 7 7h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Z"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg>,
+  Edit: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+  Dashboard: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>,
+  Box: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>,
+  Users: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+  Store: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24"><path d="m2 7 4.41-2.205a2 2 0 0 1 2 0L12 7l3.59-1.795a2 2 0 0 1 2 0L22 7v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7Z"/><path d="M12 22V7"/><path d="M2 13h20"/><path d="M2 17h20"/></svg>,
+  Settings: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>,
+  QR: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>,
+  Lock: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12" className="mr-1"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+  Copy: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>,
+  Check: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" width="16" height="16"><polyline points="20 6 9 17 4 12"/></svg>,
+};
+
+// ==========================================
+// CONTEXTO DE AUTENTICAÇÃO
+// ==========================================
+function App() {
+  // Detecta se veio por QR Code: ?loja=slug_aqui
+  const params = new URLSearchParams(window.location.search);
+  const slugQR = params.get('loja');
+
+  // Estados principais
+  const [authUser, setAuthUser] = useState(null);   // Usuário Supabase Auth (dono)
+  const [perfil, setPerfil] = useState(null);         // Perfil + conta do dono
+  const [conta, setConta] = useState(null);            // Dados da conta/empresa
+  const [view, setView] = useState(slugQR ? 'qr_loading' : 'auth');
+
+  // Dados operacionais
+  const [lojas, setLojas] = useState([]);
+  const [equipe, setEquipe] = useState([]);
+  const [produtos, setProdutos] = useState([]);
+  const [historico, setHistorico] = useState([]);
+
+  // Estado do fluxo QR (funcionário sem login)
+  const [lojaQR, setLojaQR] = useState(null);         // Loja identificada pelo slug
+  const [funcUser, setFuncUser] = useState(null);      // Funcionário selecionado
+  const [flowStep, setFlowStep] = useState(1);
+  const [qrPinUser, setQrPinUser] = useState(null);    // Usuário aguardando PIN no QR
+  const [qrPinAttempt, setQrPinAttempt] = useState('');
+  const [qrPinError, setQrPinError] = useState(false);
+
+  // Filtros dashboard
+  const [filtroTempo, setFiltroTempo] = useState('hoje');
+  const [filtroMesEsp, setFiltroMesEsp] = useState('');
+  const [filtroLoja, setFiltroLoja] = useState('todas');
+
+  // Registro de perda
+  const [reg, setReg] = useState({ foto_arquivo: null, foto_url_local: null, produto: null, qtd: '', unidade: 'un', motivo: null, observacao: '', custo_unitario: 0, icone: '📦' });
+  const [customProd, setCustomProd] = useState('');
+  const [customEmoji, setCustomEmoji] = useState('📦');
+  const [isCustomMotivo, setIsCustomMotivo] = useState(false);
+  const [customMotivo, setCustomMotivo] = useState('');
+  const [showColegasList, setShowColegasList] = useState(false);
+  const [selectedColega, setSelectedColega] = useState(null);
+  const [obsColega, setObsColega] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [fotoModal, setFotoModal] = useState(null);
+  const [copiedSlug, setCopiedSlug] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Gestão produtos/equipe/lojas
+  const [novoProdNome, setNovoProdNome] = useState('');
+  const [novoProdEmoji, setNovoProdEmoji] = useState('📦');
+  const [novoProdCusto, setNovoProdCusto] = useState('');
+  const [editingProdId, setEditingProdId] = useState(null);
+  const [editProd, setEditProd] = useState({});
+
+  const [novoMemNome, setNovoMemNome] = useState('');
+  const [novoMemAvatar, setNovoMemAvatar] = useState('👨‍🍳');
+  const [novoMemCodigo, setNovoMemCodigo] = useState('');
+  const [novoMemFuncao, setNovoMemFuncao] = useState('operacional');
+  const [novoMemLoja, setNovoMemLoja] = useState('');
+  const [editingMemId, setEditingMemId] = useState(null);
+  const [editMem, setEditMem] = useState({});
+
+  const [novaLojaNome, setNovaLojaNome] = useState('');
+  const [editingLojaId, setEditingLojaId] = useState(null);
+  const [editLoja, setEditLoja] = useState({});
+
+  // Settings
+  const [settNome, setSettNome] = useState('');
+  const [settLogo, setSettLogo] = useState(null);
+
+  const chartBarRef = useRef(null);
+  const chartDonutRef = useRef(null);
+  const chartBarInst = useRef(null);
+  const chartDonutInst = useRef(null);
+
+  // ==========================================
+  // DETECÇÃO DE QR CODE
+  // ==========================================
+  useEffect(() => {
+    if (!slugQR || !supabase) return;
+    async function carregarLojaQR() {
+      const { data: lojaData, error } = await supabase
+        .from('lojas')
+        .select('id, nome, slug_acesso, conta_id, contas(id, nome_rede, logo_rede)')
+        .eq('slug_acesso', slugQR)
+        .single();
+
+      if (error || !lojaData) {
+        setView('qr_invalido');
+        return;
+      }
+
+      // Carrega equipe desta loja
+      const { data: equipeData } = await supabase
+        .from('equipe')
+        .select('*')
+        .eq('loja_id', lojaData.id)
+        .order('nome');
+
+      // Carrega produtos desta conta
+      const { data: prodData } = await supabase
+        .from('produtos')
+        .select('*')
+        .eq('conta_id', lojaData.conta_id)
+        .order('nome');
+
+      setLojaQR(lojaData);
+      setConta(lojaData.contas);
+      setEquipe(equipeData || []);
+      setProdutos(prodData || []);
+      setView('qr_select_user');
+    }
+    carregarLojaQR();
+  }, [slugQR]);
+
+  // ==========================================
+  // AUTH SUPABASE — sessão do dono
+  // ==========================================
+  useEffect(() => {
+    if (!supabase || slugQR) return;
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) carregarPerfil(session.user);
+      else setView('auth');
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) carregarPerfil(session.user);
+      else { setAuthUser(null); setPerfil(null); setConta(null); setView('auth'); }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const carregarPerfil = async (user) => {
+    setAuthUser(user);
+    const { data: p } = await supabase
+      .from('perfis')
+      .select('*, contas(*)')
+      .eq('id', user.id)
+      .single();
+
+    if (p) {
+      setPerfil(p);
+      setConta(p.contas);
+      setSettNome(p.contas?.nome_rede || '');
+      setSettLogo(p.contas?.logo_rede || null);
+      await carregarDados(p.conta_id);
+      setView('dashboard');
+    }
+  };
+
+  const carregarDados = async (conta_id) => {
+    if (!supabase) return;
+    const [lojasRes, equipeRes, prodRes, histRes] = await Promise.all([
+      supabase.from('lojas').select('*').eq('conta_id', conta_id).order('nome'),
+      supabase.from('equipe').select('*').eq('conta_id', conta_id).order('nome'),
+      supabase.from('produtos').select('*').eq('conta_id', conta_id).order('nome'),
+      supabase.from('historico').select('*').eq('conta_id', conta_id).order('timestamp', { ascending: false }),
+    ]);
+    if (lojasRes.data) setLojas(lojasRes.data);
+    if (equipeRes.data) setEquipe(equipeRes.data);
+    if (prodRes.data) setProdutos(prodRes.data);
+    if (histRes.data) setHistorico(histRes.data);
+  };
+
+  const handleLogout = async () => {
+    await supabase?.auth.signOut();
+    setView('auth');
+  };
+
+  // ==========================================
+  // HELPERS
+  // ==========================================
+  const emojiDict = { 'carne':'🥩','blend':'🥩','picanha':'🥩','bacon':'🥓','pao':'🍞','pão':'🍞','hamburguer':'🍔','burger':'🍔','batata':'🍟','frita':'🍟','cebola':'🧅','alface':'🥬','salada':'🥗','tomate':'🍅','queijo':'🧀','cheddar':'🧀','frango':'🍗','peixe':'🐟','ovo':'🥚','refri':'🥤','coca':'🥤','suco':'🧃' };
+  const buscarEmoji = (txt) => { const l = txt.toLowerCase(); for (const [k,v] of Object.entries(emojiDict)) if (l.includes(k)) return v; return '📦'; };
+
+  const motivosLista = [
+    { id:1, nome:'Validade Expirada', icone:'📅', cor:'bg-orange-100 text-orange-600' },
+    { id:2, nome:'Estragado / Mofado', icone:'🦠', cor:'bg-purple-100 text-purple-600' },
+    { id:3, nome:'Erro de Preparo', icone:'🔥', cor:'bg-red-100 text-red-600' },
+    { id:4, nome:'Devolvido (Cliente)', icone:'😞', cor:'bg-blue-100 text-blue-600' },
+    { id:5, nome:'Queda no Chão', icone:'👇', cor:'bg-yellow-100 text-yellow-600' },
+    { id:6, nome:'Outro', icone:'➕', cor:'bg-gray-100 text-gray-600' },
+  ];
+
+  const resetFlow = () => {
+    setReg({ foto_arquivo:null, foto_url_local:null, produto:null, qtd:'', unidade:'un', motivo:null, observacao:'', custo_unitario:0, icone:'📦' });
+    setCustomProd(''); setCustomEmoji('📦');
+    setIsCustomMotivo(false); setCustomMotivo('');
+    setShowColegasList(false); setSelectedColega(null); setObsColega('');
+    setFlowStep(1);
+  };
+
+  const getDadosFiltrados = () => historico.filter(item => {
+    if (filtroLoja !== 'todas' && item.loja_id !== parseInt(filtroLoja)) return false;
+    const d = new Date(item.timestamp);
+    if (filtroMesEsp) {
+      const m = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      return m === filtroMesEsp;
+    }
+    const hoje = new Date();
+    const diffDias = (new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000;
+    if (filtroTempo === 'hoje') return diffDias === 0;
+    if (filtroTempo === 'semana') return diffDias <= 7;
+    if (filtroTempo === 'mes') return diffDias <= 30;
+    return true;
+  });
+
+  const mesesDisponiveis = [...new Set(historico.map(item => {
+    const d = new Date(item.timestamp);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  }))].sort().reverse();
+
+  const nomeMes = (m) => { const [a,mo] = m.split('-'); const d = new Date(a,mo-1,1); const n = d.toLocaleString('pt-BR',{month:'long',year:'numeric'}); return n.charAt(0).toUpperCase()+n.slice(1); };
+
+  // ==========================================
+  // SALVAR REGISTRO DE PERDA (funciona com ou sem login)
+  // ==========================================
+  const finalizarRegistro = async (responsavel) => {
+    setIsUploading(true);
+    const lojaAtual = lojaQR || lojas.find(l => l.id === parseInt(filtroLoja)) || lojas[0];
+    // conta_id: busca em todas as fontes — conta_id direto, objeto contas aninhado, ou conta logada
+    const contaId = lojaQR?.conta_id 
+      || lojaQR?.contas?.id 
+      || conta?.id 
+      || lojaAtual?.conta_id 
+      || null;
+
+    if (!contaId) {
+      alert('Erro: conta não identificada. Feche o app e tente novamente pelo QR Code.');
+      setIsUploading(false);
+      return;
+    }
+
+    let fotoUrl = null;
+    if (reg.foto_arquivo && supabase) {
+      const ext = reg.foto_arquivo.name.split('.').pop();
+      const fname = `${contaId}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('fotos_perdas').upload(fname, reg.foto_arquivo);
+      if (!upErr) {
+        const { data: urlData } = supabase.storage.from('fotos_perdas').getPublicUrl(fname);
+        fotoUrl = urlData.publicUrl;
+      }
+    }
+
+    const qtdNum = parseFloat(reg.qtd.toString().replace(',','.')) || 0;
+    const obj = {
+      conta_id: contaId,
+      loja_id: lojaAtual?.id,
+      relator: funcUser?.nome || perfil?.nome || 'Sistema',
+      responsavel,
+      prod: reg.produto,
+      qtd: qtdNum,
+      uni: reg.unidade,
+      motivo: reg.motivo,
+      observacao: obsColega,
+      hora: `Hoje, ${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}`,
+      img: reg.icone,
+      custo_total: qtdNum * reg.custo_unitario,
+      foto_url: fotoUrl,
+      timestamp: Date.now()
+    };
+
+    if (supabase) {
+      const { data, error } = await supabase.from('historico').insert([obj]).select();
+      if (error) { alert('Erro ao salvar: ' + error.message); setIsUploading(false); return; }
+      if (!slugQR) setHistorico([data[0], ...historico]);
+    }
+
+    setIsUploading(false);
+    alert('✅ Perda registrada com sucesso!');
+    resetFlow();
+
+    // Se veio por QR: volta para seleção de usuário
+    if (slugQR) { setFuncUser(null); setView('qr_select_user'); }
+    else setView('dashboard');
+  };
+
+  // ==========================================
+  // GRÁFICOS
+  // ==========================================
+  useEffect(() => {
+    if (view !== 'dashboard') return;
+    const dados = getDadosFiltrados();
+    setTimeout(() => {
+      if (chartBarRef.current) {
+        if (chartBarInst.current) chartBarInst.current.destroy();
+        const perProd = {};
+        dados.forEach(i => { const q = parseFloat(i.qtd)||0; perProd[i.prod] = (perProd[i.prod]||0)+q; });
+        chartBarInst.current = new Chart(chartBarRef.current.getContext('2d'), {
+          type:'bar',
+          data:{ labels: Object.keys(perProd).length ? Object.keys(perProd) : ['Sem dados'], datasets:[{label:'Volume',data:Object.values(perProd).length ? Object.values(perProd) : [0],backgroundColor:'#00A86B',borderRadius:4}] },
+          options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+        });
+      }
+      if (chartDonutRef.current) {
+        if (chartDonutInst.current) chartDonutInst.current.destroy();
+        const perMotivo = {};
+        dados.forEach(i => { perMotivo[i.motivo] = (perMotivo[i.motivo]||0)+(i.custo_total||0); });
+        chartDonutInst.current = new Chart(chartDonutRef.current.getContext('2d'), {
+          type:'doughnut',
+          data:{ labels: Object.keys(perMotivo).length ? Object.keys(perMotivo) : ['Sem dados'], datasets:[{data:Object.values(perMotivo).length ? Object.values(perMotivo) : [1],backgroundColor:['#f97316','#ef4444','#eab308','#3b82f6','#a855f7','#64748b'],borderWidth:0}] },
+          options:{ responsive:true, maintainAspectRatio:false, cutout:'70%', plugins:{legend:{position:'right',labels:{boxWidth:10,font:{size:10}}}} }
+        });
+      }
+    }, 100);
+  }, [view, filtroTempo, filtroMesEsp, filtroLoja, historico]);
+
+  // ==========================================
+  // COMPONENTES COMPARTILHADOS
+  // ==========================================
+  const LogoRede = ({ size=32 }) => {
+    const logo = lojaQR?.contas?.logo_rede || conta?.logo_rede;
+    if (logo) return <img src={logo} className="rounded-full object-cover bg-white" style={{width:size,height:size}} />;
+    return <div className="bg-brand text-white rounded-full flex items-center justify-center" style={{width:size,height:size}}><Ico.Shield /></div>;
+  };
+
+  const TrialBanner = () => {
+    if (!conta || conta.plano !== 'trial') return null;
+    const dias = diasRestantesTrial(conta.trial_expira_em);
+    if (dias <= 0) return (
+      <div className="bg-red-600 text-white px-4 py-2 text-center text-xs font-bold">
+        ⚠️ Trial encerrado — Assine para continuar usando
+      </div>
+    );
+    return (
+      <div className="trial-bar text-white px-4 py-1.5 text-center text-xs font-bold flex items-center justify-center gap-2">
+        <span>⏳ Trial: {dias} dias restantes</span>
+        <span className="bg-white text-amber-600 px-2 py-0.5 rounded-full text-[10px] font-black">ASSINAR →</span>
+      </div>
+    );
+  };
+
+  const BottomNav = () => (
+    <div className="bg-white border-t border-gray-200 p-2 pb-safe px-2 flex justify-between items-center absolute bottom-0 w-full z-20 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+      {[
+        {v:'dashboard', ico:<Ico.Dashboard/>, label:'Painel'},
+        {v:'mgr_produtos', ico:<Ico.Box/>, label:'Produtos'},
+        {v:'mgr_lojas', ico:<Ico.Store/>, label:'Unidades'},
+        {v:'mgr_equipe', ico:<Ico.Users/>, label:'Equipe'},
+        {v:'mgr_settings', ico:<Ico.Settings/>, label:'Ajustes'},
+      ].map(({v,ico,label}) => (
+        <button key={v} onClick={() => setView(v)} className={`flex flex-col items-center p-2 flex-1 ${view===v?'text-brand':'text-slate-400'}`}>
+          {ico}<span className="text-[9px] font-bold uppercase mt-1">{label}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  const PhotoModal = () => !fotoModal ? null : (
+    <div className="absolute inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-4 animate-fade-in">
+      <button onClick={() => setFotoModal(null)} className="absolute top-6 right-6 text-white bg-white/10 p-4 rounded-full"><Ico.Delete/></button>
+      <div className="bg-white p-2 rounded-2xl shadow-2xl w-full max-w-sm">
+        <img src={fotoModal} className="w-full h-auto max-h-[60vh] object-cover rounded-xl" alt="Evidência" />
+      </div>
+      <p className="text-white mt-6 bg-brand px-6 py-2 rounded-full font-bold tracking-widest text-sm">AUDITORIA VISUAL</p>
+    </div>
+  );
+
+  // ==========================================
+  // TELA: AUTH (Login / Cadastro)
+  // ==========================================
+  if (view === 'auth') {
+    return <TelaAuth onLogin={() => {}} supabase={supabase} />;
+  }
+
+  // ==========================================
+  // TELA: QR CODE CARREGANDO
+  // ==========================================
+  if (view === 'qr_loading') {
+    return (
+      <div className="flex-1 flex flex-col bg-slate-900 justify-center items-center">
+        <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-white font-bold">Identificando sua loja...</p>
+      </div>
+    );
+  }
+
+  if (view === 'qr_invalido') {
+    return (
+      <div className="flex-1 flex flex-col bg-slate-900 justify-center items-center p-8 text-center">
+        <div className="text-6xl mb-4">❌</div>
+        <h2 className="text-white text-2xl font-bold mb-2">QR Code Inválido</h2>
+        <p className="text-slate-400">Este código não existe ou foi desativado. Peça ao gerente um novo QR Code.</p>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // TELA: QR — SELECIONAR FUNCIONÁRIO
+  // ==========================================
+  if (view === 'qr_select_user') {
+    const equipeDaLoja = equipe.filter(e => e.loja_id === lojaQR?.id);
+    const nomeLoja = lojaQR?.nome || 'Loja';
+    const nomeRede = lojaQR?.contas?.nome_rede || 'PerdaZero';
+
+    return (
+      <div className="flex-1 flex flex-col bg-gray-50 animate-fade-in min-h-0">
+        <div className="bg-brand p-6 pt-10 pb-8 rounded-b-[40px] shadow-lg text-white text-center pt-safe flex-shrink-0">
+          <LogoRede size={52} />
+          <p className="text-green-100 text-sm font-bold tracking-widest uppercase mt-3">{nomeRede}</p>
+          <h2 className="text-2xl font-black mt-1">{nomeLoja}</h2>
+          <p className="text-green-200 text-sm mt-1">Quem está registrando?</p>
+        </div>
+
+        <div className="flex-1 p-5 overflow-y-auto hide-scrollbar min-h-0">
+          {equipeDaLoja.length === 0 && (
+            <div className="text-center py-12">
+              <p className="text-4xl mb-3">👥</p>
+              <p className="text-slate-500 font-medium">Nenhum funcionário cadastrado nesta loja ainda.</p>
+              <p className="text-slate-400 text-sm mt-1">Peça ao gerente para cadastrar a equipe.</p>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-4 pb-6">
+            {equipeDaLoja.map(m => (
+              <button key={m.id} onClick={() => {
+                if (m.funcao !== 'operacional' && m.codigo) {
+                  setQrPinUser(m);
+                  setQrPinAttempt('');
+                  setQrPinError(false);
+                } else {
+                  setFuncUser(m); resetFlow(); setView('flow_qr');
+                }
+              }}
+                className="bg-white border border-gray-200 p-5 rounded-3xl flex flex-col items-center shadow-sm hover:border-brand hover:shadow-md active:scale-95 transition-all">
+                <div className="text-5xl mb-3 bg-gray-50 p-4 rounded-full shadow-inner">{m.avatar || '👤'}</div>
+                <span className="font-bold text-slate-800 text-lg text-center leading-tight">{m.nome.split(' ')[0]}</span>
+                {m.funcao !== 'operacional' && (
+                  <span className="mt-2 text-[9px] bg-slate-800 text-white px-2 py-0.5 rounded-full uppercase flex items-center">
+                    <Ico.Lock/> Senha
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* MODAL DE PIN NO QR */}
+          {qrPinUser && (
+            <div className="absolute inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-6 animate-fade-in">
+              <div className="bg-white w-full max-w-sm rounded-[40px] p-8 flex flex-col items-center shadow-2xl">
+                <button onClick={() => setQrPinUser(null)} className="absolute top-8 left-8 text-slate-400"><Ico.Back/></button>
+                <div className="text-6xl mb-4 mt-2">{qrPinUser.avatar || '👤'}</div>
+                <h2 className="text-2xl font-bold text-slate-800 mb-1">Olá, {(qrPinUser.nome || '').split(' ')[0]}</h2>
+                <p className="text-slate-500 text-sm mb-6 font-medium">Digite seu PIN de acesso</p>
+                <div className="flex space-x-3 mb-6">
+                  {[0,1,2,3].map(i => (
+                    <div key={i} className={`w-12 h-12 rounded-xl flex items-center justify-center text-3xl font-bold border-2 transition-all ${qrPinAttempt[i] ? 'border-brand text-brand bg-green-50 scale-110' : 'border-gray-200 text-transparent bg-gray-50'}`}>
+                      {qrPinAttempt[i] ? '●' : '○'}
+                    </div>
+                  ))}
+                </div>
+                {qrPinError && <p className="text-red-500 text-xs font-bold mb-4 animate-bounce">PIN incorreto. Tente novamente.</p>}
+                <div className="grid grid-cols-3 gap-3 w-full">
+                  {[1,2,3,4,5,6,7,8,9].map(n => (
+                    <button key={n} onClick={() => {
+                      if (qrPinAttempt.length < 4) {
+                        const novo = qrPinAttempt + n;
+                        setQrPinAttempt(novo);
+                        if (novo.length === 4) {
+                          if (novo === qrPinUser.codigo) {
+                            const u = qrPinUser;
+                            setQrPinUser(null);
+                            setQrPinAttempt('');
+                            setQrPinError(false);
+                            setFuncUser(u); resetFlow(); setView('flow_qr');
+                          } else {
+                            setQrPinError(true);
+                            setTimeout(() => { setQrPinAttempt(''); setQrPinError(false); }, 800);
+                          }
+                        }
+                      }
+                    }} className="bg-gray-50 text-slate-800 text-2xl font-bold py-4 rounded-2xl active:bg-gray-200">{n}</button>
+                  ))}
+                  <div></div>
+                  <button onClick={() => {
+                    if (qrPinAttempt.length < 4) {
+                      const novo = qrPinAttempt + '0';
+                      setQrPinAttempt(novo);
+                      if (novo.length === 4) {
+                        if (novo === qrPinUser.codigo) {
+                          const u = qrPinUser;
+                          setQrPinUser(null); setQrPinAttempt(''); setQrPinError(false);
+                          setFuncUser(u); resetFlow(); setView('flow_qr');
+                        } else {
+                          setQrPinError(true);
+                          setTimeout(() => { setQrPinAttempt(''); setQrPinError(false); }, 800);
+                        }
+                      }
+                    }
+                  }} className="bg-gray-50 text-slate-800 text-2xl font-bold py-4 rounded-2xl active:bg-gray-200">0</button>
+                  <button onClick={() => setQrPinAttempt(qrPinAttempt.slice(0,-1))} className="bg-red-50 text-red-500 py-4 rounded-2xl flex items-center justify-center active:bg-red-100"><Ico.Delete/></button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // TELA: FLOW DE REGISTRO (funciona para QR e para manager)
+  // ==========================================
+  const isQRFlow = view === 'flow_qr';
+  const isManagerFlow = view === 'flow_mgr';
+
+  if (isQRFlow || isManagerFlow) {
+    if (isUploading) return (
+      <div className="flex-1 flex flex-col bg-slate-900 justify-center items-center">
+        <div className="w-16 h-16 border-4 border-brand border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-white font-bold tracking-widest uppercase">Salvando...</p>
+      </div>
+    );
+
+    const voltarFlow = () => {
+      if (flowStep === 5 && selectedColega) { setSelectedColega(null); setObsColega(''); return; }
+      if (flowStep === 5 && showColegasList) { setShowColegasList(false); return; }
+      if (flowStep === 4 && isCustomMotivo) { setIsCustomMotivo(false); setCustomMotivo(''); return; }
+      if (flowStep > 1) { setFlowStep(flowStep - 1); return; }
+      if (isQRFlow) setView('qr_select_user');
+      else setView('dashboard');
+    };
+
+    const proceedToStep5 = (motivo) => {
+      if (motivo === 'Outro' && !customMotivo.trim()) return;
+      setReg({...reg, motivo: motivo === 'Outro' ? customMotivo : motivo});
+      setFlowStep(5);
+    };
+
+    const equipeDaLoja = isQRFlow ? equipe.filter(e => e.loja_id === lojaQR?.id) : equipe;
+
+    return (
+      <div className="flex-1 flex flex-col bg-white min-h-0">
+        {/* Header */}
+        <div className="p-4 border-b flex items-center shadow-sm z-10 pt-safe shrink-0">
+          <button onClick={voltarFlow} className="p-2 text-slate-500"><Ico.Back/></button>
+          <div className="flex-1 text-center">
+            <p className="font-bold text-slate-400 text-xs tracking-widest">PASSO {flowStep} DE 5</p>
+            {isQRFlow && <p className="text-[10px] text-brand font-bold">{funcUser?.nome?.split(' ')[0]} • {lojaQR?.nome}</p>}
+          </div>
+          <div className="w-10"></div>
+        </div>
+
+        {/* Passo 1: Foto */}
+        {flowStep === 1 && (
+          <div className="flex-1 flex flex-col animate-slide-up bg-gray-50 min-h-0">
+            <div className="flex-1 overflow-y-auto hide-scrollbar flex flex-col items-center p-6">
+              <h3 className="text-2xl font-bold text-slate-800 mb-8 shrink-0">📸 Foto da Perda</h3>
+              {reg.foto_url_local ? (
+                <div className="w-full max-w-xs relative mb-8 rounded-2xl overflow-hidden shadow-lg border-4 border-brand shrink-0">
+                  <img src={reg.foto_url_local} className="w-full h-48 object-cover" alt="foto"/>
+                  <div className="absolute bottom-2 right-2 bg-brand text-white text-xs font-bold px-2 py-1 rounded">✓ Foto Capturada</div>
+                </div>
+              ) : (
+                <div className="w-full max-w-xs h-48 bg-gray-100 rounded-2xl mb-8 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 text-gray-400 shrink-0">
+                  <Ico.Camera size={48}/>
+                  <p className="text-sm mt-2">Tire uma foto da perda</p>
+                </div>
+              )}
+              <button onClick={() => fileInputRef.current?.click()} className="w-full max-w-xs py-5 bg-brand text-white font-bold rounded-2xl text-xl flex items-center justify-center shadow-xl active:scale-95 transition-transform shrink-0">
+                <Ico.Camera size={20}/> <span className="ml-2">{reg.foto_url_local ? 'Tirar Outra' : 'Abrir Câmera'}</span>
+              </button>
+              <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden"
+                onChange={(e) => {
+                  if (e.target.files?.[0]) {
+                    const f = e.target.files[0];
+                    setReg({...reg, foto_arquivo:f, foto_url_local:URL.createObjectURL(f)});
+                  }
+                }}/>
+            </div>
+            <div className="p-6 pt-0 bg-gray-50 shrink-0 flex flex-col items-center">
+              {reg.foto_url_local
+                ? <button onClick={() => setFlowStep(2)} className="w-full max-w-xs py-4 bg-slate-900 text-white font-bold rounded-2xl text-lg shadow-xl active:scale-95 animate-fade-in">Avançar com esta foto</button>
+                : <button onClick={() => setFlowStep(2)} className="text-slate-400 underline font-medium p-4">Pular (Sem Foto)</button>
+              }
+            </div>
+          </div>
+        )}
+
+        {/* Passo 2: Produto */}
+        {flowStep === 2 && (
+          <div className="flex-1 flex flex-col animate-slide-up bg-gray-50 min-h-0">
+            <div className="flex-1 p-6 overflow-y-auto hide-scrollbar flex flex-col">
+              <h3 className="text-xl font-bold text-slate-800 mb-4 shrink-0">O que está na foto?</h3>
+              <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 mb-6 flex gap-3 items-center shrink-0">
+                <div className="text-4xl w-16 h-16 bg-gray-50 rounded-xl border border-gray-100 flex items-center justify-center shadow-inner">{customEmoji}</div>
+                <div className="flex-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Digitar produto</label>
+                  <input autoFocus placeholder="Ex: Camarão" value={customProd}
+                    onChange={e => { setCustomProd(e.target.value); setCustomEmoji(buscarEmoji(e.target.value)); }}
+                    className="w-full text-lg font-bold text-slate-800 focus:outline-none placeholder:font-normal"/>
+                </div>
+              </div>
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 shrink-0">Ou escolha da lista:</div>
+              <div className="grid grid-cols-2 gap-3 shrink-0 pb-6">
+                {produtos.map(p => (
+                  <button key={p.id} onClick={() => { setCustomProd(p.nome); setCustomEmoji(p.icone); setReg({...reg,produto:p.nome,custo_unitario:p.custo||0,icone:p.icone}); setFlowStep(3); }}
+                    className="bg-white border border-gray-200 p-4 rounded-2xl flex items-center shadow-sm active:border-brand active:bg-green-50 transition-colors">
+                    <span className="text-3xl mr-3">{p.icone}</span>
+                    <span className="font-bold text-slate-700 text-sm text-left leading-tight">{p.nome}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {customProd && (
+              <div className="p-6 pt-0 bg-gray-50 shrink-0">
+                <button onClick={() => { setReg({...reg,produto:customProd,custo_unitario:0,icone:customEmoji}); setFlowStep(3); }}
+                  className="w-full py-4 rounded-2xl font-bold text-white text-lg bg-brand shadow-lg animate-fade-in">
+                  Confirmar: {customProd}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Passo 3: Quantidade */}
+        {flowStep === 3 && (
+          <div className="flex-1 flex flex-col animate-slide-up bg-gray-50 min-h-0">
+            <div className="flex-1 p-6 flex flex-col items-center overflow-y-auto hide-scrollbar">
+              <h3 className="text-lg font-bold text-slate-800 mb-1 shrink-0">Quantidade perdida de</h3>
+              <p className="text-brand font-extrabold text-xl mb-4 text-center shrink-0">{reg.icone} {reg.produto}</p>
+              <div className="flex bg-gray-200 p-1.5 rounded-2xl mb-6 w-full max-w-xs shrink-0">
+                {['un','kg','L'].map(u => (
+                  <button key={u} onClick={() => setReg({...reg,unidade:u})}
+                    className={`flex-1 py-2 font-bold rounded-xl transition-all ${reg.unidade===u?'bg-white shadow-sm text-slate-800':'text-slate-500'}`}>
+                    {u === 'un' ? 'Unid.' : u === 'kg' ? 'Kg' : 'Litro'}
+                  </button>
+                ))}
+              </div>
+              <div className="text-5xl font-black text-slate-800 mb-6 h-14 flex items-baseline shrink-0">
+                {reg.qtd || '0'} <span className="text-2xl text-slate-400 ml-2 font-bold">{reg.unidade}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 w-full max-w-xs shrink-0 pb-6">
+                {[1,2,3,4,5,6,7,8,9].map(n => (
+                  <button key={n} onClick={() => setReg({...reg,qtd:reg.qtd+n})} className="bg-white border border-gray-200 text-2xl font-bold py-3 rounded-2xl active:bg-gray-100 shadow-sm">{n}</button>
+                ))}
+                <button onClick={() => { if (!reg.qtd.includes(',')) setReg({...reg,qtd:reg.qtd+','}); }} className="bg-white border border-gray-200 text-2xl font-bold py-3 rounded-2xl active:bg-gray-100 shadow-sm">,</button>
+                <button onClick={() => setReg({...reg,qtd:reg.qtd+'0'})} className="bg-white border border-gray-200 text-2xl font-bold py-3 rounded-2xl active:bg-gray-100 shadow-sm">0</button>
+                <button onClick={() => setReg({...reg,qtd:reg.qtd.slice(0,-1)})} className="bg-red-50 border border-red-100 text-red-500 py-3 rounded-2xl flex justify-center items-center shadow-sm active:bg-red-100"><Ico.Delete/></button>
+              </div>
+            </div>
+            <div className="p-6 pt-0 bg-gray-50 shrink-0 w-full flex justify-center">
+              <button onClick={() => setFlowStep(4)} disabled={!reg.qtd}
+                className={`w-full max-w-xs py-4 rounded-2xl font-bold text-white text-lg transition-all ${reg.qtd?'bg-brand shadow-lg':'bg-gray-300'}`}>AVANÇAR</button>
+            </div>
+          </div>
+        )}
+
+        {/* Passo 4: Motivo */}
+        {flowStep === 4 && !isCustomMotivo && (
+          <div className="flex-1 flex flex-col animate-slide-up bg-gray-50 min-h-0">
+            <div className="flex-1 p-6 overflow-y-auto hide-scrollbar flex flex-col">
+              <h3 className="text-xl font-bold text-slate-800 mb-6 shrink-0">Por que foi perdido?</h3>
+              <div className="grid grid-cols-2 gap-3 shrink-0 pb-6">
+                {motivosLista.map(m => (
+                  <button key={m.id} onClick={() => m.nome === 'Outro' ? setIsCustomMotivo(true) : proceedToStep5(m.nome)}
+                    className="bg-white border border-gray-200 p-5 rounded-3xl flex flex-col items-center shadow-sm active:scale-95 transition-transform">
+                    <div className={`w-14 h-14 rounded-full flex items-center justify-center text-3xl mb-3 shadow-inner ${m.cor}`}>{m.icone}</div>
+                    <span className="font-bold text-slate-700 text-sm text-center">{m.nome}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {flowStep === 4 && isCustomMotivo && (
+          <div className="flex-1 flex flex-col animate-slide-up bg-gray-50 min-h-0">
+            <div className="flex-1 p-6 flex flex-col">
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Descreva o Motivo</h3>
+              <textarea autoFocus placeholder="Ex: A geladeira desligou durante a noite..." value={customMotivo}
+                onChange={e => setCustomMotivo(e.target.value)}
+                className="w-full p-4 border border-gray-200 rounded-2xl text-base font-medium text-slate-800 focus:border-brand focus:outline-none resize-none h-32"/>
+            </div>
+            <div className="p-6 pt-0 shrink-0">
+              <button onClick={() => proceedToStep5('Outro')} disabled={!customMotivo.trim()}
+                className={`w-full py-4 rounded-2xl font-bold text-white text-lg ${customMotivo.trim()?'bg-brand shadow-lg':'bg-gray-300'}`}>Avançar</button>
+            </div>
+          </div>
+        )}
+
+        {/* Passo 5: Responsável */}
+        {flowStep === 5 && !showColegasList && (
+          <div className="flex-1 flex flex-col animate-slide-up bg-gray-50 min-h-0">
+            <div className="flex-1 p-6 flex flex-col items-center justify-center text-center">
+              <h3 className="text-3xl font-black text-slate-800 mb-2">Você sabe quem foi?</h3>
+              <p className="text-slate-500 font-medium mb-8 text-sm px-4">Se apontar um colega, apenas a gerência verá. É confidencial.</p>
+              <div className="w-full max-w-xs space-y-4">
+                <button onClick={() => finalizarRegistro(funcUser?.nome || perfil?.nome || 'Gestor')}
+                  className="w-full py-5 bg-white border border-gray-200 rounded-2xl font-bold text-slate-700 text-lg shadow-sm active:bg-gray-100 flex items-center justify-center">🙋‍♂️ Fui eu mesmo</button>
+                <button onClick={() => finalizarRegistro('Não identificado')}
+                  className="w-full py-5 bg-white border border-gray-200 rounded-2xl font-bold text-slate-700 text-lg shadow-sm active:bg-gray-100 flex items-center justify-center">🤷‍♂️ Não sei / Achei assim</button>
+                <button onClick={() => setShowColegasList(true)}
+                  className="w-full py-5 bg-white border border-gray-200 rounded-2xl font-bold text-brand text-lg shadow-sm active:bg-gray-100 flex items-center justify-center">👉 Foi outra pessoa...</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {flowStep === 5 && showColegasList && !selectedColega && (
+          <div className="flex-1 flex flex-col animate-slide-up bg-gray-50 min-h-0">
+            <div className="flex-1 p-6 overflow-y-auto hide-scrollbar flex flex-col">
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Selecione o Colega:</h3>
+              <p className="text-slate-500 text-sm mb-6">Somente a gerência verá essa informação.</p>
+              <div className="grid grid-cols-2 gap-4 pb-6">
+                {equipeDaLoja.filter(e => e.id !== funcUser?.id).map(c => (
+                  <button key={c.id} onClick={() => setSelectedColega(c.nome)}
+                    className="bg-white border border-gray-200 p-4 rounded-2xl flex flex-col items-center shadow-sm active:border-brand active:bg-green-50 transition-colors">
+                    <span className="text-4xl mb-2">{c.avatar || '👤'}</span>
+                    <span className="font-bold text-slate-700 text-sm text-center">{c.nome.split(' ')[0]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {flowStep === 5 && selectedColega && (
+          <div className="flex-1 flex flex-col animate-slide-up bg-gray-50 min-h-0">
+            <div className="flex-1 p-6 flex flex-col">
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Responsável: {selectedColega.split(' ')[0]}</h3>
+              <p className="text-slate-500 text-sm mb-4">Quer adicionar alguma observação? (Opcional)</p>
+              <textarea autoFocus placeholder="Ex: Deixou a porta do freezer aberta..." value={obsColega}
+                onChange={e => setObsColega(e.target.value)}
+                className="w-full p-4 border border-gray-200 rounded-2xl text-base font-medium focus:border-brand focus:outline-none resize-none h-32"/>
+            </div>
+            <div className="p-6 pt-0 shrink-0">
+              <button onClick={() => finalizarRegistro(selectedColega)} className="w-full py-4 rounded-2xl font-bold text-white text-lg bg-brand shadow-lg">Finalizar Registro</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ==========================================
+  // A PARTIR DAQUI: APENAS PARA DONOS LOGADOS
+  // ==========================================
+  if (!perfil) {
+    return (
+      <div className="flex-1 flex flex-col bg-slate-900 justify-center items-center">
+        <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  const dadosDash = getDadosFiltrados();
+
+  // ==========================================
+  // DASHBOARD
+  // ==========================================
+  if (view === 'dashboard') {
+    const totalPrej = dadosDash.reduce((acc,c) => acc+(c.custo_total||0), 0);
+
+    const rankResp = {};
+    dadosDash.forEach(i => { if (i.responsavel !== 'Não identificado') rankResp[i.responsavel] = (rankResp[i.responsavel]||0)+(i.custo_total||0); });
+    const topResp = Object.entries(rankResp).sort((a,b)=>b[1]-a[1]).slice(0,3);
+
+    const rankProd = {};
+    dadosDash.forEach(i => { rankProd[i.prod] = (rankProd[i.prod]||0)+(i.custo_total||0); });
+    const topProd = Object.entries(rankProd).sort((a,b)=>b[1]-a[1]).slice(0,3);
+
+    const handleDelete = async (id) => {
+      if (!window.confirm('Excluir este registro permanentemente?')) return;
+      if (supabase) { await supabase.from('historico').delete().eq('id', id); }
+      setHistorico(historico.filter(h => h.id !== id));
+    };
+
+    return (
+      <div className="flex-1 flex flex-col bg-gray-100 animate-slide-up h-full pb-safe relative pt-safe min-h-0">
+        <PhotoModal/>
+        <TrialBanner/>
+        <div className="bg-slate-900 text-white p-5 flex flex-col shadow-md z-10 flex-shrink-0">
+          <div className="flex justify-between items-center mb-3">
+            <div>
+              <p className="text-brand text-[10px] font-bold tracking-widest uppercase">Painel de Gestão</p>
+              <h2 className="text-xl font-bold">{conta?.nome_rede}</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { resetFlow(); setView('flow_mgr'); }} className="bg-brand text-white px-3 py-2 rounded-xl text-xs font-bold active:scale-95 transition-transform">+ Registrar</button>
+              <button onClick={handleLogout} className="p-2 bg-slate-800 rounded-full"><Ico.Logout/></button>
+            </div>
+          </div>
+
+          <div className="mb-2">
+            <select value={filtroLoja} onChange={e => setFiltroLoja(e.target.value)} className="w-full bg-slate-800 text-white p-2.5 rounded-xl text-sm font-bold border border-slate-700 outline-none">
+              <option value="todas">🌐 Todas as unidades</option>
+              {lojas.map(l => <option key={l.id} value={l.id}>🏪 {l.nome}</option>)}
+            </select>
+          </div>
+
+          <div className="flex bg-slate-800 p-1 rounded-xl mb-2">
+            {[{v:'hoje',l:'Hoje'},{v:'semana',l:'Semana'},{v:'mes',l:'Mês'}].map(({v,l}) => (
+              <button key={v} onClick={() => { setFiltroTempo(v); setFiltroMesEsp(''); }}
+                className={`flex-1 py-1.5 font-bold rounded-lg text-xs transition-colors ${filtroTempo===v&&!filtroMesEsp?'bg-slate-700 shadow-sm text-white':'text-slate-400'}`}>{l}</button>
+            ))}
+          </div>
+
+          <select value={filtroMesEsp} onChange={e => { setFiltroMesEsp(e.target.value); if(e.target.value) setFiltroTempo(''); else setFiltroTempo('hoje'); }}
+            className="w-full bg-slate-800 text-slate-300 p-2.5 rounded-xl text-sm font-bold border border-slate-700 outline-none">
+            <option value="">🗓️ Filtrar por mês...</option>
+            {mesesDisponiveis.map(m => <option key={m} value={m}>📅 {nomeMes(m)}</option>)}
+          </select>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 hide-scrollbar min-h-0">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-l-red-500">
+              <p className="text-slate-400 text-[10px] font-bold tracking-wider uppercase mb-1">Itens Perdidos</p>
+              <p className="text-2xl font-black text-slate-800">{dadosDash.length}</p>
+            </div>
+            <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-l-brand">
+              <p className="text-slate-400 text-[10px] font-bold tracking-wider uppercase mb-1">Prejuízo</p>
+              <p className="text-2xl font-black text-slate-800">{fmt(totalPrej).replace('R$','').trim()}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white p-4 rounded-2xl shadow-sm">
+              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">Top 3: Responsáveis</h3>
+              <div className="space-y-2">
+                {topResp.length===0 ? <p className="text-xs text-slate-400">Sem dados</p> : topResp.map((f,i) => (
+                  <div key={i} className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-800 truncate pr-2">#{i+1} {f[0].split(' ')[0]}</span>
+                    <span className="text-[10px] text-red-500 font-bold">{fmt(f[1])}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white p-4 rounded-2xl shadow-sm">
+              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">Top 3: Produtos</h3>
+              <div className="space-y-2">
+                {topProd.length===0 ? <p className="text-xs text-slate-400">Sem dados</p> : topProd.map((p,i) => (
+                  <div key={i} className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-800 truncate pr-2">#{i+1} {p[0]}</span>
+                    <span className="text-[10px] text-red-500 font-bold">{fmt(p[1])}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-4 rounded-2xl shadow-sm">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Custo por Motivo</h3>
+            <div className="chart-container"><canvas ref={chartDonutRef}></canvas></div>
+          </div>
+
+          <div className="bg-white p-4 rounded-2xl shadow-sm">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Volume por Produto</h3>
+            <div className="chart-container"><canvas ref={chartBarRef}></canvas></div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+            <div className="p-4 border-b bg-gray-50">
+              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Auditoria Completa</h3>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {dadosDash.length===0 ? <p className="p-6 text-center text-slate-400 font-medium">Nenhum registro no período.</p> :
+               dadosDash.map(item => {
+                const lojaItem = lojas.find(l => l.id === item.loja_id)?.nome || '—';
+                return (
+                  <div key={item.id} className="p-4 flex gap-3">
+                    {item.foto_url && (
+                      <button onClick={() => setFotoModal(item.foto_url)} className="relative w-12 h-12 bg-gray-100 rounded-xl overflow-hidden shadow-inner border border-gray-200 flex-shrink-0 active:scale-95 group">
+                        <img src={item.foto_url} className="w-full h-full object-cover opacity-60 group-hover:opacity-30 transition-opacity"/>
+                        <div className="absolute inset-0 flex items-center justify-center text-slate-800"><Ico.Camera size={14}/></div>
+                      </button>
+                    )}
+                    <div className="flex-1 overflow-hidden">
+                      <div className="flex justify-between items-start">
+                        <p className="font-bold text-base text-slate-800 truncate">{item.img} {item.prod} <span className="text-brand text-sm">({item.qtd}{item.uni})</span></p>
+                        <div className="text-sm font-black text-slate-800 shrink-0 ml-2">{fmt(item.custo_total)}</div>
+                      </div>
+                      <p className="text-sm text-red-500 font-bold mt-1 bg-red-50 inline-block px-2 py-0.5 rounded">{item.motivo}</p>
+                      <div className="mt-2 bg-gray-50 p-3 rounded-lg border border-gray-200 relative">
+                        <p className="text-xs text-slate-500 font-bold">Resp: <span className="text-slate-800">{item.responsavel}</span></p>
+                        <p className="text-xs text-slate-500 mt-0.5">Por {item.relator} • {fmtDataHora(item.timestamp)} • {lojaItem}</p>
+                        {item.observacao && <p className="text-xs text-yellow-800 italic bg-yellow-50 border border-yellow-200 p-2 rounded mt-2">"{item.observacao}"</p>}
+                        <button onClick={() => handleDelete(item.id)} className="absolute top-2 right-2 text-red-400 bg-white p-1.5 rounded-md shadow-sm border border-gray-100 active:scale-95">
+                          <Ico.Delete size={14}/>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+        <BottomNav/>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // GESTÃO DE LOJAS + QR CODES
+  // ==========================================
+  if (view === 'mgr_lojas') {
+    const addLoja = async () => {
+      if (!novaLojaNome.trim()) return;
+      if (supabase) {
+        const { data, error } = await supabase.from('lojas').insert([{ conta_id: conta.id, nome: novaLojaNome }]).select();
+        if (error) return alert('Erro: ' + error.message);
+        setLojas([...lojas, data[0]]);
+      }
+      setNovaLojaNome('');
+    };
+
+    const saveLoja = async (id) => {
+      if (supabase) { await supabase.from('lojas').update({ nome: editLoja.nome }).eq('id', id); }
+      setLojas(lojas.map(l => l.id === id ? {...l, ...editLoja} : l));
+      setEditingLojaId(null);
+    };
+
+    const deleteLoja = async (id) => {
+      if (!window.confirm('Excluir esta unidade?')) return;
+      if (supabase) { await supabase.from('lojas').delete().eq('id', id); }
+      setLojas(lojas.filter(l => l.id !== id));
+      setEditingLojaId(null);
+    };
+
+    const copiarURL = (slug) => {
+      const url = `${APP_URL}?loja=${slug}`;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(() => {
+            setCopiedSlug(slug);
+            setTimeout(() => setCopiedSlug(null), 2000);
+          }).catch(() => fallbackCopiar(url, slug));
+        } else {
+          fallbackCopiar(url, slug);
+        }
+      } catch(e) { fallbackCopiar(url, slug); }
+    };
+
+    const fallbackCopiar = (url, slug) => {
+      const el = document.createElement('textarea');
+      el.value = url;
+      el.setAttribute('readonly', '');
+      el.style.position = 'absolute';
+      el.style.left = '-9999px';
+      document.body.appendChild(el);
+      el.select();
+      el.setSelectionRange(0, 99999);
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      setCopiedSlug(slug);
+      setTimeout(() => setCopiedSlug(null), 2000);
+    };
+
+    const getQRUrl = (slug) => {
+      const url = encodeURIComponent(`${APP_URL}?loja=${slug}`);
+      return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${url}`;
+    };
+
+    const baixarQR = (slug, nome) => {
+      const url = encodeURIComponent(`${APP_URL}?loja=${slug}`);
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=20&data=${url}`;
+      const link = document.createElement('a');
+      link.href = qrUrl;
+      link.download = `qrcode-${nome.replace(/\s+/g,'-').toLowerCase()}.png`;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
+    return (
+      <div className="flex-1 flex flex-col bg-gray-100 animate-slide-up h-full pb-safe pt-safe relative min-h-0">
+        <TrialBanner/>
+        <div className="bg-slate-900 text-white p-6 shadow-md z-10 flex-shrink-0">
+          <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
+          <h2 className="text-2xl font-bold">Unidades + QR Codes</h2>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 hide-scrollbar min-h-0">
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+            <h3 className="text-xs font-bold text-slate-500 mb-4 uppercase tracking-wider">Cadastrar Nova Unidade</h3>
+            <input type="text" value={novaLojaNome} onChange={e => setNovaLojaNome(e.target.value)}
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-slate-800 focus:border-brand focus:outline-none mb-4"
+              placeholder="Ex: Shopping da Ilha" />
+            <button onClick={addLoja} disabled={!novaLojaNome.trim()}
+              className={`w-full font-bold p-3 rounded-xl transition-colors ${novaLojaNome.trim()?'bg-brand text-white':'bg-gray-200 text-gray-400'}`}>Cadastrar</button>
+          </div>
+
+          <div className="space-y-4">
+            {lojas.map(l => (
+              <div key={l.id} className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+                {editingLojaId === l.id ? (
+                  <div className="p-4 border-2 border-brand rounded-2xl">
+                    <input value={editLoja.nome} onChange={e => setEditLoja({...editLoja,nome:e.target.value})}
+                      className="w-full font-bold text-slate-700 mb-3 border-b focus:border-brand focus:outline-none p-1"/>
+                    <div className="flex justify-between">
+                      <button onClick={() => deleteLoja(l.id)} className="bg-red-50 text-red-500 p-2 rounded-lg"><Ico.Delete/></button>
+                      <button onClick={() => saveLoja(l.id)} className="bg-brand text-white py-2 px-6 rounded-lg font-bold text-xs">Salvar</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="p-4 flex items-center justify-between border-b border-gray-50">
+                      <div>
+                        <p className="font-bold text-slate-800">🏪 {l.nome}</p>
+                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">slug: {l.slug_acesso}</p>
+                      </div>
+                      <button onClick={() => { setEditingLojaId(l.id); setEditLoja({nome:l.nome}); }} className="text-slate-400 hover:text-brand p-2 bg-gray-50 rounded-full"><Ico.Edit/></button>
+                    </div>
+
+                    {/* QR CODE SECTION */}
+                    <div className="p-4 bg-gray-50">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">QR Code para a Cozinha</p>
+                      <div className="flex gap-3 items-start">
+                        <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200">
+                          <img src={getQRUrl(l.slug_acesso)} width="100" height="100" alt="QR Code" style={{display:'block'}} />
+                        </div>
+                        <div className="flex-1 space-y-2">
+                          <button onClick={() => baixarQR(l.slug_acesso, l.nome)}
+                            className="w-full bg-green-600 text-white text-xs font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform">
+                            ⬇️ Baixar para Imprimir
+                          </button>
+                          <button onClick={() => copiarURL(l.slug_acesso)}
+                            className={`w-full text-xs font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-all ${copiedSlug===l.slug_acesso?'bg-green-100 text-green-700':'bg-gray-200 text-slate-600'}`}>
+                            {copiedSlug===l.slug_acesso ? <><Ico.Check/> Copiado!</> : <><Ico.Copy/> Copiar Link</>}
+                          </button>
+                          <p className="text-[9px] text-slate-400 leading-relaxed">Gere o QR, depois baixe a imagem para imprimir e colar na cozinha.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        <BottomNav/>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // GESTÃO DE PRODUTOS
+  // ==========================================
+  if (view === 'mgr_produtos') {
+    const addProd = async () => {
+      if (!novoProdNome.trim()) return;
+      const custo = parseFloat(novoProdCusto.replace(',','.')) || 0;
+      const obj = { conta_id: conta.id, nome: novoProdNome, icone: novoProdEmoji || '📦', custo };
+      if (supabase) {
+        const { data, error } = await supabase.from('produtos').insert([obj]).select();
+        if (error) return alert('Erro: ' + error.message);
+        setProdutos([data[0], ...produtos]);
+      }
+      setNovoProdNome(''); setNovoProdEmoji('📦'); setNovoProdCusto('');
+    };
+
+    const saveProd = async (id) => {
+      const custo = parseFloat((editProd.custo||'').toString().replace(',','.')) || 0;
+      const obj = { nome: editProd.nome, icone: editProd.icone || '📦', custo };
+      if (supabase) { await supabase.from('produtos').update(obj).eq('id', id); }
+      setProdutos(produtos.map(p => p.id===id?{...p,...obj}:p));
+      setEditingProdId(null);
+    };
+
+    const deleteProd = async (id) => {
+      if (!window.confirm('Excluir?')) return;
+      if (supabase) { await supabase.from('produtos').delete().eq('id', id); }
+      setProdutos(produtos.filter(p => p.id !== id));
+      setEditingProdId(null);
+    };
+
+    return (
+      <div className="flex-1 flex flex-col bg-gray-100 animate-slide-up h-full pb-safe pt-safe relative min-h-0">
+        <TrialBanner/>
+        <div className="bg-slate-900 text-white p-6 shadow-md flex-shrink-0">
+          <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
+          <h2 className="text-2xl font-bold">Cardápio de Perdas</h2>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 hide-scrollbar min-h-0">
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+            <h3 className="text-xs font-bold text-slate-500 mb-4 uppercase tracking-wider">Adicionar Produto</h3>
+            <div className="flex gap-2 mb-3">
+              <input type="text" maxLength="2" value={novoProdEmoji} onChange={e => setNovoProdEmoji(e.target.value)}
+                className="w-16 bg-gray-50 border border-gray-200 rounded-xl p-3 text-center text-2xl focus:border-brand focus:outline-none" placeholder="🍅"/>
+              <input type="text" value={novoProdNome} onChange={e => { setNovoProdNome(e.target.value); setNovoProdEmoji(buscarEmoji(e.target.value)); }}
+                className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-slate-800 focus:border-brand focus:outline-none" placeholder="Nome do produto"/>
+            </div>
+            <input type="text" value={novoProdCusto} onChange={e => setNovoProdCusto(e.target.value)}
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold focus:border-brand focus:outline-none mb-4" placeholder="Custo unitário (R$) — obrigatório para relatórios"/>
+            {!novoProdCusto && novoProdNome && <p className="text-orange-500 text-xs font-bold mb-3">⚠️ Sem custo, o prejuízo ficará como R$ 0,00 nos relatórios.</p>}
+            <button onClick={addProd} disabled={!novoProdNome.trim()}
+              className={`w-full font-bold p-4 rounded-xl ${novoProdNome.trim()?'bg-brand text-white':'bg-gray-200 text-gray-400'}`}>Adicionar</button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {produtos.map(p => editingProdId===p.id ? (
+              <div key={p.id} className="bg-white border-2 border-brand p-4 rounded-2xl flex flex-col shadow-lg">
+                <input value={editProd.icone} onChange={e => setEditProd({...editProd,icone:e.target.value})} maxLength="2" className="text-3xl bg-gray-50 p-2 rounded-xl mb-2 text-center border focus:outline-none"/>
+                <input value={editProd.nome} onChange={e => setEditProd({...editProd,nome:e.target.value})} className="font-bold text-slate-700 text-sm text-center mb-2 border-b focus:outline-none"/>
+                <input value={editProd.custo} onChange={e => setEditProd({...editProd,custo:e.target.value})} className="text-xs text-brand font-bold text-center border-b focus:outline-none mb-3" placeholder="Custo R$"/>
+                <div className="flex justify-between mt-auto">
+                  <button onClick={() => deleteProd(p.id)} className="bg-red-50 text-red-500 p-2 rounded-lg"><Ico.Delete/></button>
+                  <button onClick={() => saveProd(p.id)} className="bg-brand text-white p-2 rounded-lg font-bold text-xs px-4">Salvar</button>
+                </div>
+              </div>
+            ) : (
+              <div key={p.id} className="bg-white border border-gray-100 p-4 pt-8 rounded-2xl flex flex-col items-center shadow-sm relative">
+                <button onClick={() => { setEditingProdId(p.id); setEditProd({nome:p.nome,icone:p.icone,custo:p.custo?.toString().replace('.',',')||''}); }} className="absolute top-2 right-2 text-slate-400 p-2 bg-gray-50 rounded-full shadow-sm hover:text-brand"><Ico.Edit/></button>
+                <span className="text-4xl bg-gray-50 p-3 rounded-2xl mb-2 shadow-inner">{p.icone}</span>
+                <span className="font-bold text-slate-700 text-sm text-center leading-tight mb-1">{p.nome}</span>
+                {p.custo > 0
+                  ? <span className="text-[10px] bg-green-50 text-brand px-2 py-0.5 rounded font-bold">{fmt(p.custo)}</span>
+                  : <span className="text-[10px] bg-orange-50 text-orange-500 px-2 py-0.5 rounded font-bold">Sem custo ⚠️</span>
+                }
+              </div>
+            ))}
+          </div>
+        </div>
+        <BottomNav/>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // GESTÃO DE EQUIPE
+  // ==========================================
+  if (view === 'mgr_equipe') {
+    const canAdd = novoMemNome.trim() && novoMemLoja && (novoMemFuncao === 'operacional' || novoMemCodigo.length === 4);
+
+    const addMem = async () => {
+      if (!canAdd) return;
+      const lojaId = parseInt(novoMemLoja);
+      const obj = { conta_id: conta.id, loja_id: lojaId, nome: novoMemNome, funcao: novoMemFuncao, codigo: novoMemFuncao==='operacional'?'':novoMemCodigo, avatar: novoMemAvatar };
+      if (supabase) {
+        const { data, error } = await supabase.from('equipe').insert([obj]).select();
+        if (error) return alert('Erro ao salvar: ' + error.message);
+        setEquipe([...equipe, data[0]]);
+      }
+      setNovoMemNome(''); setNovoMemCodigo(''); setNovoMemAvatar('👨‍🍳'); setNovoMemLoja('');
+    };
+
+    const saveMem = async (id) => {
+      if (editMem.funcao !== 'operacional' && editMem.codigo?.length !== 4) return alert('PIN deve ter 4 dígitos.');
+      const obj = { nome: editMem.nome, funcao: editMem.funcao, codigo: editMem.funcao==='operacional'?'':editMem.codigo, avatar: editMem.avatar };
+      if (supabase) { await supabase.from('equipe').update(obj).eq('id', id); }
+      setEquipe(equipe.map(m => m.id===id?{...m,...obj}:m));
+      setEditingMemId(null);
+    };
+
+    const deleteMem = async (id) => {
+      if (!window.confirm('Remover colaborador?')) return;
+      if (supabase) { await supabase.from('equipe').delete().eq('id', id); }
+      setEquipe(equipe.filter(m => m.id !== id));
+      setEditingMemId(null);
+    };
+
+    return (
+      <div className="flex-1 flex flex-col bg-gray-100 animate-slide-up h-full pb-safe pt-safe relative min-h-0">
+        <TrialBanner/>
+        <div className="bg-slate-900 text-white p-6 shadow-md flex-shrink-0">
+          <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
+          <h2 className="text-2xl font-bold">Equipe Ativa</h2>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 hide-scrollbar min-h-0">
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-6">
+            <h3 className="text-xs font-bold text-slate-500 mb-4 uppercase tracking-wider">Cadastrar Colaborador</h3>
+            <div className="space-y-3 mb-4">
+              <div className="flex gap-2">
+                <select value={novoMemAvatar} onChange={e => setNovoMemAvatar(e.target.value)} className="w-20 bg-gray-50 border border-gray-200 rounded-xl p-2 text-center text-xl focus:border-brand focus:outline-none">
+                  {['👨‍🍳','👩‍🍳','👔','🛡️','👨‍💼','👩‍💼'].map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+                <input type="text" value={novoMemNome} onChange={e => setNovoMemNome(e.target.value)}
+                  className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-slate-800 focus:border-brand focus:outline-none" placeholder="Nome completo"/>
+              </div>
+
+              <select value={novoMemLoja} onChange={e => setNovoMemLoja(e.target.value)}
+                className={`w-full bg-gray-50 border rounded-xl p-3 text-sm font-bold text-slate-800 focus:border-brand focus:outline-none ${!novoMemLoja ? 'border-orange-300' : 'border-gray-200'}`}>
+                <option value="">⚠️ Selecione a loja (obrigatório)</option>
+                {lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+              </select>
+
+              <div className="flex gap-2">
+                {novoMemFuncao !== 'operacional' ? (
+                  <input type="text" inputMode="numeric" maxLength="4" value={novoMemCodigo}
+                    onChange={e => setNovoMemCodigo(e.target.value.replace(/\D/g,'').slice(0,4))}
+                    className="w-24 bg-gray-50 border border-gray-200 rounded-xl p-3 text-center font-mono font-bold text-slate-800 focus:border-brand focus:outline-none" placeholder="PIN"/>
+                ) : (
+                  <div className="w-24 bg-gray-100 border border-gray-200 rounded-xl p-3 text-center font-bold text-slate-400 text-xs flex items-center justify-center">S/ Senha</div>
+                )}
+                <select value={novoMemFuncao} onChange={e => { setNovoMemFuncao(e.target.value); if(e.target.value==='operacional') setNovoMemCodigo(''); }}
+                  className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-slate-800 focus:border-brand focus:outline-none">
+                  <option value="operacional">Operacional / Cozinha</option>
+                  <option value="gerente">Gerente da Loja</option>
+                  <option value="escritorio">Escritório (todas as lojas)</option>
+                </select>
+              </div>
+            </div>
+            <button onClick={addMem} disabled={!canAdd}
+              className={`w-full font-bold p-3 rounded-xl ${canAdd?'bg-brand text-white':'bg-gray-200 text-gray-400'}`}>Criar Acesso</button>
+          </div>
+
+          <div className="space-y-3">
+            {lojas.map(loja => {
+              const membros = equipe.filter(m => m.loja_id === loja.id);
+              if (membros.length === 0) return null;
+              return (
+                <div key={loja.id}>
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 px-1">🏪 {loja.nome}</p>
+                  {membros.map(m => editingMemId===m.id ? (
+                    <div key={m.id} className="bg-white border-2 border-brand p-4 rounded-2xl mb-3 shadow-lg">
+                      <div className="flex gap-2 mb-3">
+                        <select value={editMem.avatar} onChange={e => setEditMem({...editMem,avatar:e.target.value})} className="w-16 text-center text-xl border-b focus:outline-none bg-transparent">
+                          {['👨‍🍳','👩‍🍳','👔','🛡️','👨‍💼','👩‍💼'].map(a => <option key={a} value={a}>{a}</option>)}
+                        </select>
+                        <input value={editMem.nome} onChange={e => setEditMem({...editMem,nome:e.target.value})} className="flex-1 font-bold text-slate-700 text-sm border-b focus:border-brand focus:outline-none"/>
+                      </div>
+                      <div className="flex gap-2 mb-3">
+                        {editMem.funcao !== 'operacional' ? (
+                          <input type="text" inputMode="numeric" value={editMem.codigo} onChange={e => setEditMem({...editMem,codigo:e.target.value.replace(/\D/g,'').slice(0,4)})} className="w-20 text-center font-mono font-bold border-b focus:outline-none" placeholder="PIN"/>
+                        ) : (
+                          <div className="w-20 text-center text-slate-400 text-[10px] border-b flex items-center justify-center bg-gray-50 rounded">S/ SENHA</div>
+                        )}
+                        <select value={editMem.funcao} onChange={e => { setEditMem({...editMem,funcao:e.target.value}); if(e.target.value==='operacional') setEditMem(p=>({...p,codigo:''})); }} className="flex-1 text-xs border-b focus:outline-none">
+                          <option value="operacional">Operacional</option>
+                          <option value="gerente">Gerente</option>
+                        </select>
+                      </div>
+                      <div className="flex justify-between">
+                        <button onClick={() => deleteMem(m.id)} className="bg-red-50 text-red-500 p-2 rounded-lg"><Ico.Delete/></button>
+                        <button onClick={() => saveMem(m.id)} className="bg-brand text-white py-2 px-6 rounded-lg font-bold text-xs">Salvar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={m.id} className="bg-white border border-gray-100 p-4 rounded-2xl flex items-center justify-between shadow-sm mb-3">
+                      <div>
+                        <p className="font-bold text-slate-800 text-sm">{m.avatar} {m.nome}
+                          {m.funcao !== 'operacional' && <span className="ml-2 text-[8px] bg-slate-800 text-white px-1.5 py-0.5 rounded uppercase">{m.funcao}</span>}
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-bold mt-0.5 uppercase tracking-wider">
+                          {m.funcao === 'operacional' ? 'Sem senha' : <>PIN: <span className="bg-gray-100 px-1 rounded font-mono">{m.codigo}</span></>}
+                        </p>
+                      </div>
+                      <button onClick={() => { setEditingMemId(m.id); setEditMem({nome:m.nome,funcao:m.funcao,codigo:m.codigo||'',avatar:m.avatar||'👨‍🍳'}); }} className="text-slate-400 hover:text-brand p-3 bg-gray-50 rounded-full shadow-sm"><Ico.Edit/></button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <BottomNav/>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // AJUSTES
+  // ==========================================
+  if (view === 'mgr_settings') {
+    const saveSettings = async () => {
+      if (supabase) {
+        const { error } = await supabase.from('contas').update({ nome_rede: settNome, logo_rede: settLogo }).eq('id', conta.id);
+        if (error) return alert('Erro: ' + error.message);
+        await supabase.auth.updateUser({ data: { nome_rede: settNome } });
+      }
+      setConta({...conta, nome_rede: settNome, logo_rede: settLogo});
+      alert('✅ Configurações salvas!');
+      setView('dashboard');
+    };
+
+    return (
+      <div className="flex-1 flex flex-col bg-gray-100 animate-slide-up h-full pb-safe pt-safe relative min-h-0">
+        <TrialBanner/>
+        <div className="bg-slate-900 text-white p-6 shadow-md flex-shrink-0">
+          <p className="text-brand text-xs font-bold tracking-widest mb-1">CONFIGURAÇÕES</p>
+          <h2 className="text-2xl font-bold">Ajustes da Conta</h2>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 min-h-0">
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+            <h3 className="text-xs font-bold text-slate-500 mb-4 uppercase tracking-wider">Identidade Visual</h3>
+            <div className="mb-5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase">Logo da Rede</label>
+              <div className="flex items-center gap-4 mt-2">
+                <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center overflow-hidden border border-gray-200 shadow-inner">
+                  {settLogo ? <img src={settLogo} className="w-full h-full object-cover"/> : <div className="text-brand"><Ico.Shield/></div>}
+                </div>
+                <label className="flex-1 bg-white border border-gray-200 text-slate-600 text-sm font-bold p-3 rounded-xl text-center cursor-pointer hover:bg-gray-50 shadow-sm">
+                  Alterar Logo
+                  <input type="file" accept="image/*" className="hidden" onChange={e => {
+                    if (e.target.files?.[0]) {
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const img = new Image();
+                        img.onload = () => {
+                          const canvas = document.createElement('canvas');
+                          const max = 300; let w = img.width, h = img.height;
+                          if (w > h) { if (w > max) { h *= max/w; w = max; } } else { if (h > max) { w *= max/h; h = max; } }
+                          canvas.width = w; canvas.height = h;
+                          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                          setSettLogo(canvas.toDataURL('image/jpeg', 0.8));
+                        };
+                        img.src = ev.target.result;
+                      };
+                      reader.readAsDataURL(e.target.files[0]);
+                    }
+                  }}/>
+                </label>
+              </div>
+            </div>
+            <div className="mb-5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase">Nome da Rede</label>
+              <input type="text" value={settNome} onChange={e => setSettNome(e.target.value)}
+                className="w-full mt-2 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-slate-800 focus:border-brand focus:outline-none"/>
+            </div>
+            <button onClick={saveSettings} className="w-full bg-slate-900 text-white font-bold p-4 rounded-xl shadow-md active:scale-95 transition-transform">Salvar Alterações</button>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+            <h3 className="text-xs font-bold text-slate-500 mb-4 uppercase tracking-wider">Sua Conta</h3>
+            <p className="text-sm text-slate-600 mb-1"><span className="font-bold text-slate-800">Email:</span> {authUser?.email}</p>
+            <p className="text-sm text-slate-600 mb-1"><span className="font-bold text-slate-800">Plano:</span> {conta?.plano}</p>
+            {conta?.plano === 'trial' && <p className="text-sm text-slate-600"><span className="font-bold text-slate-800">Trial expira em:</span> {diasRestantesTrial(conta.trial_expira_em)} dias</p>}
+            <button onClick={handleLogout} className="w-full mt-4 bg-red-50 text-red-500 font-bold p-3 rounded-xl border border-red-100">Sair da Conta</button>
+          </div>
+        </div>
+        <BottomNav/>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+// ==========================================
+// TELA DE AUTH — componente separado
+// ==========================================
+function TelaAuth({ supabase }) {
+  const [modo, setModo] = useState('login');
+  const [email, setEmail] = useState('');
+  const [senha, setSenha] = useState('');
+  const [nome, setNome] = useState('');
+  const [nomeRede, setNomeRede] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState('');
+  const [sucesso, setSucesso] = useState('');
+
+  const handleLogin = async () => {
+    if (!email || !senha) return;
+    setLoading(true); setErro('');
+    const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
+    if (error) setErro('Email ou senha incorretos.');
+    setLoading(false);
+  };
+
+  const handleCadastro = async () => {
+    if (!nome.trim() || !nomeRede.trim() || !email || senha.length < 6) {
+      setErro('Preencha todos os campos. Senha mínimo 6 caracteres.'); return;
+    }
+    setLoading(true); setErro('');
+    const { error } = await supabase.auth.signUp({
+      email, password: senha,
+      options: { data: { nome, nome_rede: nomeRede } }
+    });
+    if (error) { setErro(error.message); } 
+    else { 
+      setSucesso('Conta criada! Verifique seu email para confirmar o cadastro.');
+      setModo('login');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="flex-1 flex flex-col p-6 bg-slate-900 justify-center items-center animate-fade-in overflow-y-auto hide-scrollbar">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-10">
+          <div className="w-20 h-20 bg-brand rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-2xl">
+            <div className="text-white w-10 h-10"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="100%" height="100%"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          </div>
+          <h1 className="text-4xl font-extrabold text-white tracking-tight">Perda<span className="text-brand">Zero</span></h1>
+          <p className="text-slate-400 mt-2 text-sm">Gestão de desperdício para redes de alimentação</p>
+        </div>
+
+        <div className="flex bg-slate-800 p-1 rounded-2xl mb-6">
+          <button onClick={() => { setModo('login'); setErro(''); setSucesso(''); }}
+            className={`flex-1 py-3 font-bold rounded-xl text-sm transition-colors ${modo==='login'?'bg-white text-slate-900 shadow':'text-slate-400'}`}>Entrar</button>
+          <button onClick={() => { setModo('cadastro'); setErro(''); setSucesso(''); }}
+            className={`flex-1 py-3 font-bold rounded-xl text-sm transition-colors ${modo==='cadastro'?'bg-brand text-white shadow':'text-slate-400'}`}>Criar Conta</button>
+        </div>
+
+        <div className="space-y-3">
+          {modo === 'cadastro' && (
+            <>
+              <input type="text" placeholder="Nome da sua rede (Ex: Roy's)" value={nomeRede} onChange={e => setNomeRede(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
+              <input type="text" placeholder="Seu nome" value={nome} onChange={e => setNome(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
+            </>
+          )}
+          <input type="email" placeholder="seu@email.com" value={email} onChange={e => setEmail(e.target.value)}
+            className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
+          <input type="password" placeholder="Senha (mín. 6 caracteres)" value={senha} onChange={e => setSenha(e.target.value)}
+            onKeyDown={e => e.key==='Enter' && (modo==='login'?handleLogin():handleCadastro())}
+            className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
+
+          {erro && <p className="text-red-400 text-sm font-medium text-center py-1">{erro}</p>}
+          {sucesso && <p className="text-green-400 text-sm font-medium text-center py-1">{sucesso}</p>}
+
+          <button onClick={modo==='login'?handleLogin:handleCadastro}
+            disabled={loading||!email||!senha}
+            className={`w-full py-4 rounded-2xl font-bold text-white text-lg transition-all mt-2 ${loading||!email||!senha?'bg-slate-700 text-slate-500':'bg-brand shadow-lg active:scale-95'}`}>
+            {loading ? 'Aguarde...' : modo==='login' ? 'Entrar no Painel' : 'Começar 14 dias grátis →'}
+          </button>
+
+          {modo === 'login' && (
+            <button onClick={async () => {
+              if (!email) { setErro('Digite seu email primeiro.'); return; }
+              await supabase.auth.resetPasswordForEmail(email);
+              setSucesso('Link de redefinição enviado para seu email.');
+            }} className="w-full text-slate-500 text-sm font-medium py-2 text-center">Esqueci minha senha</button>
+          )}
+        </div>
+
+        {modo === 'cadastro' && (
+          <p className="text-slate-600 text-xs text-center mt-6">
+            14 dias grátis, sem cartão. Após o trial, planos a partir de R$ 49/mês.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App/>);
+</script>
+</body>
+</html>

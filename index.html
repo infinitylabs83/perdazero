@@ -1056,16 +1056,28 @@ function App() {
       return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${url}`;
     };
 
-    const baixarQR = (slug, nome) => {
-      const url = encodeURIComponent(`${APP_URL}?loja=${slug}`);
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=20&data=${url}`;
-      const link = document.createElement('a');
-      link.href = qrUrl;
-      link.download = `qrcode-${nome.replace(/\s+/g,'-').toLowerCase()}.png`;
-      link.target = '_blank';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+    const baixarQR = async (slug, nome) => {
+      const appUrl = `${APP_URL}?loja=${slug}`;
+      const urlEncoded = encodeURIComponent(appUrl);
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=20&data=${urlEncoded}`;
+      
+      try {
+        // Busca a imagem e converte para blob para download real
+        const response = await fetch(qrUrl);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = `qrcode-${nome.replace(/\s+/g,'-').toLowerCase()}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(blobUrl);
+      } catch(e) {
+        // Fallback: abre em nova aba para salvar manualmente
+        alert('Toque e segure na imagem do QR Code abaixo para salvar.');
+        window.open(qrUrl, '_blank');
+      }
     };
 
     return (

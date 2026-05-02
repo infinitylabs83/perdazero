@@ -79,9 +79,7 @@ const diasRestantesTrial = (expira) => {
   const diff = new Date(expira) - new Date();
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 };
-// NOTA: Para trial de 20 dias, rodar no Supabase:
-// UPDATE contas SET trial_expira_em = created_at + INTERVAL '20 days' WHERE plano = 'trial';
-// E atualizar o trigger handle_novo_usuario para usar 20 dias.
+const LANDING_URL = 'https://perdazero.com.br#planos';
 
 // ==========================================
 // ÍCONES
@@ -143,6 +141,7 @@ function App() {
   const [customEmoji, setCustomEmoji] = useState('📦');
   const [buscaProd, setBuscaProd] = useState('');
   const [qtdAlertaVisto, setQtdAlertaVisto] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [isCustomMotivo, setIsCustomMotivo] = useState(false);
   const [customMotivo, setCustomMotivo] = useState('');
   const [showColegasList, setShowColegasList] = useState(false);
@@ -175,9 +174,6 @@ function App() {
   // Settings
   const [settNome, setSettNome] = useState('');
   const [settLogo, setSettLogo] = useState(null);
-
-  // Onboarding
-  const [showOnboarding, setShowOnboarding] = useState(false);
 
   const chartBarRef = useRef(null);
   const chartDonutRef = useRef(null);
@@ -257,9 +253,7 @@ function App() {
       setSettNome(p.contas?.nome_rede || '');
       setSettLogo(p.contas?.logo_rede || null);
       await carregarDados(p.conta_id);
-      setView('dashboard');
-      // Mostra onboarding se for primeira vez (sem lojas cadastradas)
-      // Verificado após carregarDados via useEffect
+      setView('dashboard'); // onboarding verificado via useEffect
     }
   };
 
@@ -390,68 +384,27 @@ function App() {
     else setView('dashboard');
   };
 
-  // Onboarding: mostrar se não tem lojas após carregar
+  // Onboarding
   useEffect(() => {
     if (view === 'dashboard' && perfil && lojas.length === 0 && historico.length === 0) {
       setShowOnboarding(true);
     }
   }, [view, perfil, lojas.length]);
 
-  // ==========================================
-  // EXPORTAR PDF DO RELATÓRIO
-  // ==========================================
+  // Exportar PDF
   const exportarPDF = () => {
     const dados = getDadosFiltrados();
     const totalPrej = dados.reduce((acc,c) => acc+(c.custo_total||0), 0);
-    const periodoLabel = filtroMesEsp ? nomeMes(filtroMesEsp) : filtroTempo === 'hoje' ? 'Hoje' : filtroTempo === 'semana' ? 'Últimos 7 dias' : 'Últimos 30 dias';
-    const lojaLabel = filtroLoja === 'todas' ? 'Todas as unidades' : lojas.find(l=>l.id===parseInt(filtroLoja))?.nome || '';
-
-    const rows = dados.map(item => {
-      const lojaItem = lojas.find(l => l.id === item.loja_id)?.nome || '—';
-      return `<tr>
-        <td>${item.img} ${item.prod}</td>
-        <td>${item.qtd} ${item.uni}</td>
-        <td>${item.motivo}</td>
-        <td>${item.relator}</td>
-        <td>${item.responsavel}</td>
-        <td>${lojaItem}</td>
-        <td style="color:#dc2626;font-weight:bold">R$ ${(item.custo_total||0).toFixed(2).replace('.',',')}</td>
-      </tr>`;
+    const periodo = filtroMesEsp ? nomeMes(filtroMesEsp) : filtroTempo === 'hoje' ? 'Hoje' : filtroTempo === 'semana' ? 'Ultimos 7 dias' : 'Ultimos 30 dias';
+    const lojaLabel = filtroLoja === 'todas' ? 'Todas as unidades' : (lojas.find(l=>l.id===parseInt(filtroLoja))?.nome || '');
+    const linhas = dados.map(item => {
+      const lojaItem = lojas.find(l => l.id === item.loja_id)?.nome || '-';
+      const custo = (item.custo_total||0).toFixed(2).replace('.',',');
+      return '<tr><td>' + (item.img||'') + ' ' + (item.prod||'') + '</td><td>' + item.qtd + ' ' + item.uni + '</td><td>' + item.motivo + '</td><td>' + item.relator + '</td><td>' + item.responsavel + '</td><td>' + lojaItem + '</td><td style="color:#dc2626;font-weight:bold">R$ ' + custo + '</td></tr>';
     }).join('');
-
-    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-    <title>PerdaZero — Relatório</title>
-    <style>
-      body{font-family:Arial,sans-serif;padding:32px;color:#111;font-size:12px}
-      h1{color:#00A86B;font-size:22px;margin-bottom:4px}
-      .sub{color:#666;margin-bottom:24px;font-size:13px}
-      .kpi{display:inline-block;margin-right:32px;margin-bottom:24px}
-      .kpi-label{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:1px}
-      .kpi-val{font-size:22px;font-weight:bold;color:#111}
-      .kpi-val.red{color:#dc2626}
-      table{width:100%;border-collapse:collapse;margin-top:16px}
-      th{background:#0f172a;color:#fff;padding:8px;text-align:left;font-size:11px}
-      td{padding:7px 8px;border-bottom:1px solid #e5e7eb;font-size:11px}
-      tr:nth-child(even) td{background:#f9fafb}
-      .footer{margin-top:32px;color:#999;font-size:10px;border-top:1px solid #e5e7eb;padding-top:12px}
-    </style></head><body>
-    <h1>📊 PerdaZero — Relatório de Desperdício</h1>
-    <div class="sub">${conta?.nome_rede} · ${lojaLabel} · ${periodoLabel} · Gerado em ${new Date().toLocaleDateString('pt-BR')}</div>
-    <div>
-      <div class="kpi"><div class="kpi-label">Total de registros</div><div class="kpi-val">${dados.length}</div></div>
-      <div class="kpi"><div class="kpi-label">Prejuízo estimado</div><div class="kpi-val red">R$ ${totalPrej.toFixed(2).replace('.',',')}</div></div>
-    </div>
-    <table>
-      <thead><tr><th>Produto</th><th>Qtd</th><th>Motivo</th><th>Relator</th><th>Responsável</th><th>Loja</th><th>Custo</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div class="footer">Relatório gerado pelo PerdaZero · perdazero.com.br</div>
-    </body></html>`;
-
+    const pag = '<html><head><meta charset="UTF-8"><title>PerdaZero</title><style>body{font-family:Arial,sans-serif;padding:32px;font-size:12px}h1{color:#00A86B}table{width:100%;border-collapse:collapse;margin-top:16px}th{background:#0f172a;color:#fff;padding:8px;text-align:left;font-size:11px}td{padding:7px 8px;border-bottom:1px solid #e5e7eb}tr:nth-child(even) td{background:#f9fafb}</style></head><body><h1>PerdaZero - Relatorio de Desperdicio</h1><p>' + (conta?.nome_rede||'') + ' - ' + lojaLabel + ' - ' + periodo + '</p><p>Total: ' + dados.length + ' itens | Prejuizo: R$ ' + totalPrej.toFixed(2).replace('.',',') + '</p><table><thead><tr><th>Produto</th><th>Qtd</th><th>Motivo</th><th>Relator</th><th>Responsavel</th><th>Loja</th><th>Custo</th></tr></thead><tbody>' + linhas + '</tbody></table></body></html>';
     const w = window.open('', '_blank');
-    w.document.write(html);
-    w.document.close();
-    setTimeout(() => { w.print(); }, 500);
+    if (w) { w.document.write(pag); w.document.close(); setTimeout(() => w.print(), 500); }
   };
 
   // ==========================================
@@ -488,34 +441,25 @@ function App() {
   // COMPONENTES COMPARTILHADOS
   // ==========================================
   const LogoRede = ({ size=32 }) => {
-    // Busca logo de todas as fontes disponíveis
     const logo = settLogo || lojaQR?.contas?.logo_rede || conta?.logo_rede || perfil?.contas?.logo_rede;
     if (logo) return <img src={logo} className="rounded-full object-cover bg-white" style={{width:size,height:size}} alt="Logo" />;
     return <div className="bg-brand text-white rounded-full flex items-center justify-center" style={{width:size,height:size}}><Ico.Shield /></div>;
   };
-
-  const LANDING_URL = 'https://perdazero.com.br#planos'; // Atualizar quando landing ficar pronta
 
   const TrialBanner = () => {
     if (!conta || conta.plano !== 'trial') return null;
     const dias = diasRestantesTrial(conta.trial_expira_em);
     if (dias <= 0) return (
       <div className="bg-red-600 text-white px-4 py-2 text-center text-xs font-bold flex items-center justify-center gap-2">
-        <span>⚠️ Seu período gratuito encerrou</span>
-        <button onClick={() => window.open(LANDING_URL, '_blank')}
-          className="bg-white text-red-600 px-3 py-0.5 rounded-full text-[10px] font-black active:scale-95">
-          ASSINAR AGORA →
-        </button>
+        <span>Trial encerrado</span>
+        <button onClick={() => window.open(LANDING_URL, '_blank')} className="bg-white text-red-600 px-3 py-0.5 rounded-full text-[10px] font-black">ASSINAR AGORA</button>
       </div>
     );
     const urgente = dias <= 5;
     return (
-      <div className={`text-white px-4 py-1.5 text-center text-xs font-bold flex items-center justify-center gap-2 ${urgente ? 'bg-red-500' : 'trial-bar'}`}>
-        <span>{urgente ? '🚨' : '⏳'} {dias} {dias === 1 ? 'dia restante' : 'dias restantes'} no seu trial</span>
-        <button onClick={() => window.open(LANDING_URL, '_blank')}
-          className="bg-white text-amber-600 px-2 py-0.5 rounded-full text-[10px] font-black active:scale-95">
-          ASSINAR →
-        </button>
+      <div className={urgente ? "bg-red-500 text-white px-4 py-1.5 text-center text-xs font-bold flex items-center justify-center gap-2" : "trial-bar text-white px-4 py-1.5 text-center text-xs font-bold flex items-center justify-center gap-2"}>
+        <span>{urgente ? "🚨" : "⏳"} {dias} {dias === 1 ? "dia restante" : "dias restantes"} no trial</span>
+        <button onClick={() => window.open(LANDING_URL, '_blank')} className="bg-white text-amber-600 px-2 py-0.5 rounded-full text-[10px] font-black">ASSINAR</button>
       </div>
     );
   };
@@ -766,66 +710,43 @@ function App() {
           </div>
         )}
 
-        {/* Passo 2: Produto — apenas da lista cadastrada */}
+        {/* Passo 2: Produto — apenas da lista */}
         {flowStep === 2 && (
           <div className="flex-1 flex flex-col animate-slide-up bg-gray-50 min-h-0">
             <div className="flex-1 p-6 overflow-y-auto hide-scrollbar flex flex-col">
               <h3 className="text-xl font-bold text-slate-800 mb-1 shrink-0">Qual produto foi perdido?</h3>
               <p className="text-xs text-slate-400 mb-4 shrink-0">Selecione da lista abaixo</p>
-
-              {/* Barra de busca */}
               <div className="bg-white rounded-2xl border border-gray-200 flex items-center gap-2 px-4 py-3 mb-4 shrink-0 shadow-sm">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" className="text-slate-400 shrink-0"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                 <input autoFocus placeholder="Buscar produto..." value={buscaProd}
                   onChange={e => setBuscaProd(e.target.value)}
                   className="flex-1 text-sm font-medium text-slate-800 focus:outline-none placeholder:text-slate-400"/>
-                {buscaProd && <button onClick={() => setBuscaProd('')} className="text-slate-400 text-lg leading-none">×</button>}
+                {buscaProd && <button onClick={() => setBuscaProd('')} className="text-slate-400 text-xl leading-none">x</button>}
               </div>
-
-              {/* Lista de produtos filtrada */}
-              {(() => {
-                const filtrados = produtos.filter(p => p.nome.toLowerCase().includes(buscaProd.toLowerCase()));
-                return (
-                  <>
-                    {filtrados.length === 0 && buscaProd && (
-                      <div className="text-center py-6 shrink-0">
-                        <p className="text-3xl mb-2">🔍</p>
-                        <p className="text-slate-500 text-sm font-medium">"{buscaProd}" não encontrado</p>
-                        <p className="text-slate-400 text-xs mt-1">Peça ao gerente para cadastrar este produto</p>
-                      </div>
-                    )}
-                    {filtrados.length === 0 && !buscaProd && produtos.length === 0 && (
-                      <div className="text-center py-6 shrink-0">
-                        <p className="text-3xl mb-2">📦</p>
-                        <p className="text-slate-500 text-sm font-medium">Nenhum produto cadastrado</p>
-                        <p className="text-slate-400 text-xs mt-1">Peça ao gerente para cadastrar os produtos</p>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-3 shrink-0 pb-4">
-                      {filtrados.map(p => (
-                        <button key={p.id} onClick={() => { setReg({...reg,produto:p.nome,custo_unitario:p.custo||0,icone:p.icone}); setBuscaProd(''); setFlowStep(3); }}
-                          className="bg-white border border-gray-200 p-4 rounded-2xl flex items-center shadow-sm active:border-brand active:bg-green-50 transition-colors">
-                          <span className="text-3xl mr-3">{p.icone}</span>
-                          <div className="flex-1 min-w-0">
-                            <span className="font-bold text-slate-700 text-sm block leading-tight truncate">{p.nome}</span>
-                            {p.custo > 0
-                              ? <span className="text-[10px] text-brand font-bold">{fmt(p.custo)}/un</span>
-                              : <span className="text-[10px] text-orange-400 font-bold">sem custo ⚠️</span>
-                            }
-                          </div>
-                        </button>
-                      ))}
+              {produtos.filter(p => p.nome.toLowerCase().includes(buscaProd.toLowerCase())).length === 0 && (
+                <div className="text-center py-6 shrink-0">
+                  <p className="text-3xl mb-2">🔍</p>
+                  <p className="text-slate-500 text-sm font-medium">{buscaProd ? buscaProd + " nao encontrado" : "Nenhum produto cadastrado"}</p>
+                  <p className="text-slate-400 text-xs mt-1">Peça ao gerente para cadastrar este produto</p>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3 shrink-0 pb-4">
+                {produtos.filter(p => p.nome.toLowerCase().includes(buscaProd.toLowerCase())).map(p => (
+                  <button key={p.id} onClick={() => { setReg({...reg,produto:p.nome,custo_unitario:p.custo||0,icone:p.icone}); setBuscaProd(''); setFlowStep(3); }}
+                    className="bg-white border border-gray-200 p-4 rounded-2xl flex items-center shadow-sm active:border-brand active:bg-green-50 transition-colors">
+                    <span className="text-3xl mr-3">{p.icone}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-bold text-slate-700 text-sm block leading-tight truncate">{p.nome}</span>
+                      {p.custo > 0 ? <span className="text-[10px] text-brand font-bold">{fmt(p.custo)}/un</span> : <span className="text-[10px] text-orange-400 font-bold">sem custo</span>}
                     </div>
-                  </>
-                );
-              })()}
+                  </button>
+                ))}
+              </div>
             </div>
-
-            {/* Botão "Outro" como válvula de escape */}
             <div className="p-4 pt-0 bg-gray-50 shrink-0 border-t border-gray-100">
-              <button onClick={() => { setReg({...reg,produto:'Outro (não catalogado)',custo_unitario:0,icone:'📦'}); setBuscaProd(''); setFlowStep(3); }}
+              <button onClick={() => { setReg({...reg,produto:'Outro (nao catalogado)',custo_unitario:0,icone:'📦'}); setBuscaProd(''); setFlowStep(3); }}
                 className="w-full py-3 rounded-2xl font-bold text-slate-500 text-sm bg-white border border-gray-200 shadow-sm active:bg-gray-100">
-                ➕ Produto não está na lista? Registrar como "Outro"
+                + Produto nao esta na lista? Registrar como Outro
               </button>
             </div>
           </div>
@@ -857,40 +778,29 @@ function App() {
                 <button onClick={() => setReg({...reg,qtd:reg.qtd.slice(0,-1)})} className="bg-red-50 border border-red-100 text-red-500 py-3 rounded-2xl flex justify-center items-center shadow-sm active:bg-red-100"><Ico.Delete/></button>
               </div>
             </div>
-            {/* Alerta quantidade absurda */}
             {(() => {
               const qtdNum = parseFloat((reg.qtd||'0').toString().replace(',','.')) || 0;
-              const limiteAlerta = reg.unidade === 'un' ? 100 : 50;
-              const isAbsurdo = qtdNum > limiteAlerta && !qtdAlertaVisto;
-              return isAbsurdo ? (
+              const limite = reg.unidade === 'un' ? 100 : 50;
+              if (qtdNum > limite && !qtdAlertaVisto) return (
                 <div className="mx-6 mb-4 bg-red-50 border-2 border-red-400 rounded-2xl p-4 shrink-0">
-                  <p className="text-red-600 font-bold text-sm mb-1">⚠️ Quantidade muito alta!</p>
-                  <p className="text-red-500 text-xs mb-3">
-                    Você digitou <strong>{reg.qtd} {reg.unidade}</strong>. Isso parece muito alto para uma perda.{'
-'}
-                    {reg.unidade === 'kg' ? 'Exemplo correto: 0,450 kg (não 450)' : ''}
-                  </p>
+                  <p className="text-red-600 font-bold text-sm mb-1">Quantidade muito alta!</p>
+                  <p className="text-red-500 text-xs mb-3">Voce digitou {reg.qtd} {reg.unidade}. {reg.unidade === 'kg' ? 'Exemplo correto: 0,450 kg (e nao 450).' : 'Isso parece muito alto para uma perda.'}</p>
                   <div className="flex gap-2">
-                    <button onClick={() => setReg({...reg, qtd:''})}
-                      className="flex-1 py-2 bg-red-500 text-white font-bold text-xs rounded-xl">
-                      Corrigir
-                    </button>
-                    <button onClick={() => setQtdAlertaVisto(true)}
-                      className="flex-1 py-2 bg-gray-200 text-slate-700 font-bold text-xs rounded-xl">
-                      Está correto
-                    </button>
+                    <button onClick={() => setReg({...reg,qtd:''})} className="flex-1 py-2 bg-red-500 text-white font-bold text-xs rounded-xl">Corrigir</button>
+                    <button onClick={() => setQtdAlertaVisto(true)} className="flex-1 py-2 bg-gray-200 text-slate-700 font-bold text-xs rounded-xl">Esta correto</button>
                   </div>
                 </div>
-              ) : null;
+              );
+              return null;
             })()}
             <div className="p-6 pt-0 bg-gray-50 shrink-0 w-full flex justify-center">
               {(() => {
                 const qtdNum = parseFloat((reg.qtd||'0').toString().replace(',','.')) || 0;
-                const limiteAlerta = reg.unidade === 'un' ? 100 : 50;
-                const bloqueado = qtdNum > limiteAlerta && !qtdAlertaVisto;
+                const limite = reg.unidade === 'un' ? 100 : 50;
+                const bloqueado = qtdNum > limite && !qtdAlertaVisto;
                 return (
                   <button onClick={() => setFlowStep(4)} disabled={!reg.qtd || bloqueado}
-                    className={`w-full max-w-xs py-4 rounded-2xl font-bold text-white text-lg transition-all ${reg.qtd && !bloqueado ?'bg-brand shadow-lg':'bg-gray-300'}`}>AVANÇAR</button>
+                    className={reg.qtd && !bloqueado ? 'w-full max-w-xs py-4 rounded-2xl font-bold text-white text-lg bg-brand shadow-lg' : 'w-full max-w-xs py-4 rounded-2xl font-bold text-white text-lg bg-gray-300'}>AVANCAR</button>
                 );
               })()}
             </div>
@@ -1021,48 +931,29 @@ function App() {
       <div className="flex-1 flex flex-col bg-gray-100 animate-slide-up h-full pb-safe relative pt-safe min-h-0">
         <PhotoModal/>
 
-        {/* MODAL ONBOARDING */}
         {showOnboarding && (
           <div className="absolute inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-6 animate-fade-in">
             <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
               <div className="text-center mb-6">
                 <div className="text-5xl mb-3">🎉</div>
                 <h2 className="text-2xl font-black text-slate-800">Bem-vindo ao PerdaZero!</h2>
-                <p className="text-slate-500 text-sm mt-2">Configure seu negócio em 3 passos rápidos</p>
+                <p className="text-slate-500 text-sm mt-2">Configure em 3 passos rapidos</p>
               </div>
               <div className="space-y-3 mb-6">
-                <button onClick={() => { setShowOnboarding(false); setView('mgr_lojas'); }}
-                  className="w-full flex items-center gap-4 p-4 bg-brand/10 border-2 border-brand rounded-2xl active:scale-95 transition-transform">
+                <button onClick={() => { setShowOnboarding(false); setView('mgr_lojas'); }} className="w-full flex items-center gap-4 p-4 bg-green-50 border-2 border-brand rounded-2xl active:scale-95">
                   <span className="text-3xl">🏪</span>
-                  <div className="text-left">
-                    <p className="font-bold text-slate-800 text-sm">1. Cadastre suas unidades</p>
-                    <p className="text-slate-500 text-xs">Adicione cada loja e gere os QR Codes</p>
-                  </div>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" className="text-brand ml-auto shrink-0"><path d="m9 18 6-6-6-6"/></svg>
+                  <div className="text-left"><p className="font-bold text-slate-800 text-sm">1. Cadastre suas unidades</p><p className="text-slate-500 text-xs">Adicione cada loja e gere os QR Codes</p></div>
                 </button>
-                <button onClick={() => { setShowOnboarding(false); setView('mgr_produtos'); }}
-                  className="w-full flex items-center gap-4 p-4 bg-gray-50 border-2 border-gray-200 rounded-2xl active:scale-95 transition-transform">
+                <button onClick={() => { setShowOnboarding(false); setView('mgr_produtos'); }} className="w-full flex items-center gap-4 p-4 bg-gray-50 border-2 border-gray-200 rounded-2xl active:scale-95">
                   <span className="text-3xl">📦</span>
-                  <div className="text-left">
-                    <p className="font-bold text-slate-800 text-sm">2. Cadastre os produtos</p>
-                    <p className="text-slate-500 text-xs">Com custo unitário para calcular prejuízo</p>
-                  </div>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" className="text-slate-400 ml-auto shrink-0"><path d="m9 18 6-6-6-6"/></svg>
+                  <div className="text-left"><p className="font-bold text-slate-800 text-sm">2. Cadastre os produtos</p><p className="text-slate-500 text-xs">Com custo unitario para calcular prejuizo</p></div>
                 </button>
-                <button onClick={() => { setShowOnboarding(false); setView('mgr_equipe'); }}
-                  className="w-full flex items-center gap-4 p-4 bg-gray-50 border-2 border-gray-200 rounded-2xl active:scale-95 transition-transform">
+                <button onClick={() => { setShowOnboarding(false); setView('mgr_equipe'); }} className="w-full flex items-center gap-4 p-4 bg-gray-50 border-2 border-gray-200 rounded-2xl active:scale-95">
                   <span className="text-3xl">👥</span>
-                  <div className="text-left">
-                    <p className="font-bold text-slate-800 text-sm">3. Cadastre sua equipe</p>
-                    <p className="text-slate-500 text-xs">Funcionários que vão registrar as perdas</p>
-                  </div>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" className="text-slate-400 ml-auto shrink-0"><path d="m9 18 6-6-6-6"/></svg>
+                  <div className="text-left"><p className="font-bold text-slate-800 text-sm">3. Cadastre sua equipe</p><p className="text-slate-500 text-xs">Funcionarios que vao registrar as perdas</p></div>
                 </button>
               </div>
-              <button onClick={() => setShowOnboarding(false)}
-                className="w-full py-3 rounded-2xl font-bold text-slate-500 text-sm bg-gray-100">
-                Fazer depois
-              </button>
+              <button onClick={() => setShowOnboarding(false)} className="w-full py-3 rounded-2xl font-bold text-slate-500 text-sm bg-gray-100">Fazer depois</button>
             </div>
           </div>
         )}
@@ -1076,8 +967,8 @@ function App() {
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => { resetFlow(); setView('flow_mgr'); }} className="bg-brand text-white px-3 py-2 rounded-xl text-xs font-bold active:scale-95 transition-transform">+ Registrar</button>
-              <button onClick={exportarPDF} title="Exportar PDF" className="p-2 bg-slate-800 rounded-full" >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              <button onClick={exportarPDF} title="PDF" className="p-2 bg-slate-800 rounded-full">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
               </button>
               <button onClick={handleLogout} className="p-2 bg-slate-800 rounded-full"><Ico.Logout/></button>
             </div>
@@ -1106,97 +997,44 @@ function App() {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 hide-scrollbar min-h-0">
 
-          {/* AVISO PRODUTOS SEM CUSTO */}
-          {(() => {
-            const semCusto = produtos.filter(p => !p.custo || p.custo === 0);
-            if (semCusto.length === 0) return null;
-            return (
-              <button onClick={() => setView('mgr_produtos')}
-                className="w-full bg-orange-50 border-2 border-orange-300 rounded-2xl p-3 flex items-center gap-3 text-left active:scale-95 transition-transform">
-                <span className="text-2xl shrink-0">⚠️</span>
-                <div>
-                  <p className="font-bold text-orange-700 text-sm">{semCusto.length} produto{semCusto.length>1?'s':''} sem custo cadastrado</p>
-                  <p className="text-orange-500 text-xs">Seus relatórios de prejuízo estão incompletos — toque para corrigir</p>
-                </div>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" className="text-orange-400 shrink-0 ml-auto"><path d="m9 18 6-6-6-6"/></svg>
-              </button>
-            );
-          })()}
+          {/* Aviso produtos sem custo */}
+          {produtos.filter(p => !p.custo || p.custo === 0).length > 0 && (
+            <button onClick={() => setView('mgr_produtos')} className="w-full bg-orange-50 border-2 border-orange-300 rounded-2xl p-3 flex items-center gap-3 text-left active:scale-95">
+              <span className="text-2xl shrink-0">⚠️</span>
+              <div>
+                <p className="font-bold text-orange-700 text-sm">{produtos.filter(p => !p.custo || p.custo === 0).length} produto(s) sem custo cadastrado</p>
+                <p className="text-orange-500 text-xs">Seus relatorios estao incompletos — toque para corrigir</p>
+              </div>
+            </button>
+          )}
 
-          {/* KPIs PRINCIPAIS */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-l-red-500">
               <p className="text-slate-400 text-[10px] font-bold tracking-wider uppercase mb-1">Itens Perdidos</p>
               <p className="text-2xl font-black text-slate-800">{dadosDash.length}</p>
             </div>
             <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-l-brand">
-              <p className="text-slate-400 text-[10px] font-bold tracking-wider uppercase mb-1">Prejuízo</p>
+              <p className="text-slate-400 text-[10px] font-bold tracking-wider uppercase mb-1">Prejuizo</p>
               <p className="text-2xl font-black text-slate-800">{fmt(totalPrej).replace('R$','').trim()}</p>
             </div>
           </div>
 
-          {/* ROI / INSIGHTS */}
-          {(() => {
-            if (dadosDash.length === 0) return null;
-
-            // Loja com maior prejuízo
-            const porLoja = {};
-            dadosDash.forEach(i => {
-              const nome = lojas.find(l => l.id === i.loja_id)?.nome || 'Sem loja';
-              porLoja[nome] = (porLoja[nome]||0) + (i.custo_total||0);
-            });
+          {/* Insights ROI */}
+          {dadosDash.length > 0 && (() => {
+            const porLoja = {}; dadosDash.forEach(i => { const n = lojas.find(l=>l.id===i.loja_id)?.nome||'?'; porLoja[n]=(porLoja[n]||0)+(i.custo_total||0); });
             const topLoja = Object.entries(porLoja).sort((a,b)=>b[1]-a[1])[0];
-
-            // Motivo principal
-            const porMotivo = {};
-            dadosDash.forEach(i => { porMotivo[i.motivo] = (porMotivo[i.motivo]||0) + (i.custo_total||0); });
+            const porMotivo = {}; dadosDash.forEach(i => { porMotivo[i.motivo]=(porMotivo[i.motivo]||0)+(i.custo_total||0); });
             const topMotivo = Object.entries(porMotivo).sort((a,b)=>b[1]-a[1])[0];
-            const topMotivoPct = totalPrej > 0 ? Math.round((topMotivo?.[1]||0)/totalPrej*100) : 0;
-
-            // Produto mais perdido
-            const porProd = {};
-            dadosDash.forEach(i => { porProd[i.prod] = (porProd[i.prod]||0) + (parseFloat(i.qtd)||0); });
-            const topProdVol = Object.entries(porProd).sort((a,b)=>b[1]-a[1])[0];
-
+            const pct = totalPrej > 0 ? Math.round((topMotivo?.[1]||0)/totalPrej*100) : 0;
+            const porProd = {}; dadosDash.forEach(i => { porProd[i.prod]=(porProd[i.prod]||0)+(parseFloat(i.qtd)||0); });
+            const topProd = Object.entries(porProd).sort((a,b)=>b[1]-a[1])[0];
             return (
-              <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-4 border border-slate-700">
-                <p className="text-brand text-[10px] font-bold tracking-widest uppercase mb-3">📊 Insights do Período</p>
+              <div className="bg-slate-900 rounded-2xl p-4 border border-slate-700">
+                <p className="text-brand text-[10px] font-bold tracking-widest uppercase mb-3">Insights do Periodo</p>
                 <div className="space-y-3">
-                  {topLoja && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 text-xs">🏪 Loja com mais perda</span>
-                      <div className="text-right">
-                        <span className="text-white text-xs font-bold block">{topLoja[0]}</span>
-                        <span className="text-red-400 text-[10px] font-bold">{fmt(topLoja[1])}</span>
-                      </div>
-                    </div>
-                  )}
-                  {topMotivo && totalPrej > 0 && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 text-xs">🔥 Principal motivo</span>
-                      <div className="text-right">
-                        <span className="text-white text-xs font-bold block">{topMotivo[0]}</span>
-                        <span className="text-yellow-400 text-[10px] font-bold">{topMotivoPct}% do prejuízo</span>
-                      </div>
-                    </div>
-                  )}
-                  {topProdVol && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 text-xs">📦 Produto mais descartado</span>
-                      <div className="text-right">
-                        <span className="text-white text-xs font-bold block">{topProdVol[0]}</span>
-                        <span className="text-brand text-[10px] font-bold">{topProdVol[1].toFixed(1)} unid.</span>
-                      </div>
-                    </div>
-                  )}
-                  {totalPrej > 0 && (
-                    <div className="mt-2 pt-2 border-t border-slate-700">
-                      <p className="text-slate-300 text-xs leading-relaxed">
-                        💡 <strong>{topMotivoPct}%</strong> do seu prejuízo vem de <strong>{topMotivo?.[0]}</strong>
-                        {topLoja ? `, principalmente na <strong>${topLoja[0]}</strong>` : ''}.
-                      </p>
-                    </div>
-                  )}
+                  {topLoja && <div className="flex justify-between items-center"><span className="text-slate-400 text-xs">Loja com mais perda</span><div className="text-right"><span className="text-white text-xs font-bold block">{topLoja[0]}</span><span className="text-red-400 text-[10px] font-bold">{fmt(topLoja[1])}</span></div></div>}
+                  {topMotivo && totalPrej > 0 && <div className="flex justify-between items-center"><span className="text-slate-400 text-xs">Principal motivo</span><div className="text-right"><span className="text-white text-xs font-bold block">{topMotivo[0]}</span><span className="text-yellow-400 text-[10px] font-bold">{pct}% do prejuizo</span></div></div>}
+                  {topProd && <div className="flex justify-between items-center"><span className="text-slate-400 text-xs">Produto mais descartado</span><div className="text-right"><span className="text-white text-xs font-bold block">{topProd[0]}</span><span className="text-brand text-[10px] font-bold">{topProd[1].toFixed(1)} un</span></div></div>}
                 </div>
               </div>
             );
@@ -1341,48 +1179,14 @@ function App() {
     };
 
     const baixarQR = (slug, nome) => {
-      const appUrl = `${APP_URL}?loja=${slug}`;
-      const urlEncoded = encodeURIComponent(appUrl);
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=20&data=${urlEncoded}`;
+      const appUrl = APP_URL + '?loja=' + slug;
+      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=20&data=' + encodeURIComponent(appUrl);
       const logo = settLogo || conta?.logo_rede;
       const nomeRede = conta?.nome_rede || 'PerdaZero';
-
-      // Gera página de impressão HTML com logo + QR + instruções
-      const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-      <title>QR Code — ${nome}</title>
-      <style>
-        @page { margin: 0; }
-        body { margin: 0; padding: 0; font-family: Arial, sans-serif; background: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .card { width: 320px; border: 3px solid #00A86B; border-radius: 24px; padding: 28px 24px; text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,0.10); }
-        .logo { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; margin: 0 auto 10px; display: block; border: 2px solid #00A86B; }
-        .logo-placeholder { width: 64px; height: 64px; background: #00A86B; border-radius: 50%; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; font-size: 28px; }
-        .rede { font-size: 13px; color: #00A86B; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; }
-        .loja { font-size: 22px; font-weight: 900; color: #0f172a; margin: 4px 0 16px; }
-        .qr { width: 200px; height: 200px; margin: 0 auto; display: block; }
-        .inst { margin-top: 16px; font-size: 12px; color: #64748b; line-height: 1.5; }
-        .inst strong { color: #00A86B; }
-        .footer { margin-top: 14px; font-size: 10px; color: #94a3b8; }
-        @media print { body { min-height: unset; } .card { box-shadow: none; border-width: 2px; } }
-      </style></head><body>
-      <div class="card">
-        ${logo ? `<img src="${logo}" class="logo" alt="Logo"/>` : `<div class="logo-placeholder">🛡️</div>`}
-        <div class="rede">${nomeRede}</div>
-        <div class="loja">🏪 ${nome}</div>
-        <img src="${qrUrl}" class="qr" alt="QR Code"/>
-        <div class="inst">
-          <strong>📱 Como registrar uma perda:</strong><br>
-          1. Aponte a câmera para este QR Code<br>
-          2. Selecione seu nome<br>
-          3. Siga os passos na tela
-        </div>
-        <div class="footer">perdazero.com.br · Controle de desperdício</div>
-      </div>
-      </body></html>`;
-
+      const logoHtml = logo ? '<img src="' + logo + '" class="logo" alt="Logo"/>' : '<div class="logo-ph">🛡️</div>';
+      const pag = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>QR - ' + nome + '</title><style>@page{margin:0}body{margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;font-family:Arial,sans-serif}.card{width:300px;border:3px solid #00A86B;border-radius:20px;padding:24px;text-align:center}.logo{width:60px;height:60px;border-radius:50%;object-fit:cover;margin:0 auto 8px;display:block;border:2px solid #00A86B}.logo-ph{width:60px;height:60px;background:#00A86B;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:26px}.rede{font-size:11px;color:#00A86B;font-weight:bold;letter-spacing:1px;text-transform:uppercase}.loja{font-size:20px;font-weight:900;color:#0f172a;margin:4px 0 14px}.qr{width:180px;height:180px;margin:0 auto;display:block}.inst{margin-top:14px;font-size:11px;color:#64748b;line-height:1.5}.footer{margin-top:12px;font-size:9px;color:#94a3b8}@media print{body{min-height:unset}.card{box-shadow:none}}</style></head><body><div class="card">' + logoHtml + '<div class="rede">' + nomeRede + '</div><div class="loja">🏪 ' + nome + '</div><img src="' + qrUrl + '" class="qr" alt="QR Code"/><div class="inst">📱 Aponte a camera para este QR<br>Selecione seu nome e registre a perda</div><div class="footer">perdazero.com.br</div></div></body></html>';
       const w = window.open('', '_blank');
-      w.document.write(html);
-      w.document.close();
-      setTimeout(() => { w.print(); }, 800);
+      if (w) { w.document.write(pag); w.document.close(); setTimeout(() => w.print(), 800); }
     };
 
     return (

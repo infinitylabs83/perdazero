@@ -37,8 +37,27 @@
     .trial-bar { background: linear-gradient(90deg, #f59e0b, #ef4444); }
   </style>
 </head>
-<body class="bg-gray-200 w-screen overflow-hidden flex justify-center" style="height:100vh;height:100dvh;">
-<div id="root" class="w-full h-full max-w-md bg-white shadow-2xl overflow-hidden flex flex-col relative"></div>
+<body class="bg-gray-100 w-screen overflow-hidden flex justify-center" style="height:100vh;height:100dvh;">
+<div id="root" class="w-full h-full bg-white overflow-hidden flex flex-col relative"></div>
+<style>
+  @media(min-width:1024px){
+    body { background: #0f172a !important; }
+    #root { max-width: 100% !important; box-shadow: none !important; background: #f1f5f9 !important; }
+    .desktop-sidebar { display: flex !important; }
+    .desktop-main { margin-left: 240px !important; }
+    .desktop-hide { display: none !important; }
+    .desktop-grid-2 { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 24px !important; }
+    .desktop-grid-3 { display: grid !important; grid-template-columns: 1fr 1fr 1fr !important; gap: 20px !important; }
+    .desktop-max { max-width: 1200px !important; margin: 0 auto !important; }
+    .desktop-p { padding: 32px !important; }
+    .desktop-header { padding: 20px 32px !important; }
+    .chart-container { height: 280px !important; }
+    .desktop-card { border-radius: 16px !important; }
+  }
+  @media(max-width:1023px){
+    .desktop-sidebar { display: none !important; }
+  }
+</style>
 
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
@@ -110,11 +129,17 @@ function App() {
   const params = new URLSearchParams(window.location.search);
   const slugQR = params.get('loja');
 
+  // Detecção desktop
+  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
+
   // Estados principais
   const [authUser, setAuthUser] = useState(null);   // Usuário Supabase Auth (dono)
   const [perfil, setPerfil] = useState(null);         // Perfil + conta do dono
   const [conta, setConta] = useState(null);            // Dados da conta/empresa
-  const [view, setView] = useState(slugQR ? 'qr_loading' : 'auth');
+  const [view, setView] = useState(
+    recoveryType === 'recovery' && recoveryToken ? 'reset_senha' :
+    slugQR ? 'qr_loading' : 'auth'
+  );
 
   // Dados operacionais
   const [lojas, setLojas] = useState([]);
@@ -149,6 +174,10 @@ function App() {
   const [selectedColega, setSelectedColega] = useState(null);
   const [obsColega, setObsColega] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [novaSenha, setNovaSenha] = useState('');
+  const [confirmaSenha, setConfirmaSenha] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMsg, setResetMsg] = useState('');
   const [fotoModal, setFotoModal] = useState(null);
   const [copiedSlug, setCopiedSlug] = useState(null);
   const fileInputRef = useRef(null);
@@ -603,19 +632,68 @@ function App() {
     );
   };
 
+  const navItems = [
+    {v:'dashboard', ico:<Ico.Dashboard/>, label:'Painel'},
+    {v:'mgr_produtos', ico:<Ico.Box/>, label:'Produtos'},
+    {v:'mgr_lojas', ico:<Ico.Store/>, label:'Unidades'},
+    {v:'mgr_equipe', ico:<Ico.Users/>, label:'Equipe'},
+    {v:'mgr_settings', ico:<Ico.Settings/>, label:'Ajustes'},
+  ];
+
   const BottomNav = () => (
-    <div className="bg-white border-t border-gray-200 p-2 pb-safe px-2 flex justify-between items-center absolute bottom-0 w-full z-20 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-      {[
-        {v:'dashboard', ico:<Ico.Dashboard/>, label:'Painel'},
-        {v:'mgr_produtos', ico:<Ico.Box/>, label:'Produtos'},
-        {v:'mgr_lojas', ico:<Ico.Store/>, label:'Unidades'},
-        {v:'mgr_equipe', ico:<Ico.Users/>, label:'Equipe'},
-        {v:'mgr_settings', ico:<Ico.Settings/>, label:'Ajustes'},
-      ].map(({v,ico,label}) => (
+    <div className="desktop-hide bg-white border-t border-gray-200 p-2 pb-safe px-2 flex justify-between items-center absolute bottom-0 w-full z-20 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+      {navItems.map(({v,ico,label}) => (
         <button key={v} onClick={() => setView(v)} className={`flex flex-col items-center p-2 flex-1 ${view===v?'text-brand':'text-slate-400'}`}>
           {ico}<span className="text-[9px] font-bold uppercase mt-1">{label}</span>
         </button>
       ))}
+    </div>
+  );
+
+  const Sidebar = () => (
+    <div className="desktop-sidebar hidden fixed left-0 top-0 h-full w-60 bg-slate-900 flex-col z-30 shadow-2xl">
+      {/* Logo */}
+      <div className="p-6 border-b border-slate-800">
+        <div className="flex items-center gap-3">
+          <LogoRede size={36}/>
+          <div>
+            <p className="text-white font-black text-sm leading-tight">{conta?.nome_rede || 'PerdaZero'}</p>
+            <p className="text-slate-500 text-[10px] font-medium">Painel Administrativo</p>
+          </div>
+        </div>
+        {conta?.plano === 'trial' && (
+          <div className="mt-3 bg-amber-500/10 border border-amber-500/30 rounded-xl p-2 text-center">
+            <p className="text-amber-400 text-[10px] font-bold">{diasRestantesTrial(conta.trial_expira_em)} dias de trial restantes</p>
+            <button onClick={() => window.open(LANDING_URL,'_blank')} className="text-[10px] text-amber-300 font-bold underline mt-0.5">Assinar agora</button>
+          </div>
+        )}
+      </div>
+      {/* Nav */}
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        {navItems.map(({v,ico,label}) => (
+          <button key={v} onClick={() => setView(v)}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${view===v ? 'bg-brand text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+            <span className="w-5 h-5 flex-shrink-0">{ico}</span>
+            {label}
+          </button>
+        ))}
+      </nav>
+      {/* Footer */}
+      <div className="p-4 border-t border-slate-800 space-y-2">
+        <button onClick={() => { resetFlow(); setView('flow_mgr'); }}
+          className="w-full py-3 bg-brand text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2">
+          + Registrar Perda
+        </button>
+        <button onClick={exportarPDF}
+          className="w-full py-2.5 bg-slate-800 text-slate-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Exportar PDF
+        </button>
+        <button onClick={handleLogout}
+          className="w-full py-2.5 text-slate-500 font-bold rounded-xl text-xs flex items-center justify-center gap-2 hover:text-red-400">
+          <Ico.Logout/> Sair
+        </button>
+      </div>
     </div>
   );
 
@@ -628,6 +706,53 @@ function App() {
       <p className="text-white mt-6 bg-brand px-6 py-2 rounded-full font-bold tracking-widest text-sm">AUDITORIA VISUAL</p>
     </div>
   );
+
+  // ==========================================
+  // TELA: RESET DE SENHA
+  // ==========================================
+  if (view === 'reset_senha') {
+    return (
+      <div className="flex-1 flex flex-col bg-slate-900 justify-center items-center p-6 animate-fade-in">
+        <div className="w-full max-w-sm">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-brand rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" width="28" height="28"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <h1 className="text-2xl font-black text-white mb-2">Nova Senha</h1>
+            <p className="text-slate-400 text-sm">Digite sua nova senha abaixo</p>
+          </div>
+          <div className="space-y-3">
+            <input type="password" placeholder="Nova senha (min. 6 caracteres)" value={novaSenha}
+              onChange={e => setNovaSenha(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
+            <input type="password" placeholder="Confirmar nova senha" value={confirmaSenha}
+              onChange={e => setConfirmaSenha(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
+            {resetMsg && <p className={resetMsg.includes('sucesso') ? 'text-green-400 text-sm text-center' : 'text-red-400 text-sm text-center'}>{resetMsg}</p>}
+            <button
+              disabled={resetLoading || novaSenha.length < 6 || novaSenha !== confirmaSenha}
+              onClick={async () => {
+                if (novaSenha !== confirmaSenha) { setResetMsg('As senhas nao coincidem.'); return; }
+                setResetLoading(true);
+                try {
+                  await supabase.auth.setSession({ access_token: recoveryToken, refresh_token: '' });
+                  const { error } = await supabase.auth.updateUser({ password: novaSenha });
+                  if (error) { setResetMsg('Erro: ' + error.message); }
+                  else { setResetMsg('Senha alterada com sucesso! Redirecionando...'); setTimeout(() => { window.location.hash = ''; setView('auth'); }, 2000); }
+                } catch(e) { setResetMsg('Erro ao redefinir senha.'); }
+                setResetLoading(false);
+              }}
+              className={`w-full py-4 rounded-2xl font-bold text-white text-lg transition-all ${resetLoading || novaSenha.length < 6 || novaSenha !== confirmaSenha ? 'bg-slate-700 text-slate-500' : 'bg-brand shadow-lg'}`}>
+              {resetLoading ? 'Salvando...' : 'Salvar Nova Senha'}
+            </button>
+            {novaSenha.length > 0 && novaSenha !== confirmaSenha && (
+              <p className="text-red-400 text-xs text-center">As senhas nao coincidem</p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ==========================================
   // TELA: AUTH (Login / Cadastro)
@@ -1067,7 +1192,9 @@ function App() {
     };
 
     return (
-      <div className="flex-1 flex flex-col bg-gray-100 animate-slide-up h-full pb-safe relative pt-safe min-h-0">
+      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0">
+        <Sidebar/>
+        <div className="flex-1 flex flex-col h-full min-h-0 desktop-main pt-safe pb-safe">
         <PhotoModal/>
 
         {showOnboarding && (() => {
@@ -1165,19 +1292,19 @@ function App() {
         })()}
 
         <TrialBanner/>
-        <div className="bg-slate-900 text-white p-5 flex flex-col shadow-md z-10 flex-shrink-0">
+        <div className="bg-slate-900 text-white desktop-header p-5 flex flex-col shadow-md z-10 flex-shrink-0">
           <div className="flex justify-between items-center mb-3">
             <div>
               <p className="text-brand text-[10px] font-bold tracking-widest uppercase">Painel de Gestão</p>
               <h2 className="text-xl font-bold">{conta?.nome_rede}</h2>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => { resetFlow(); setView('flow_mgr'); }} className="bg-brand text-white px-3 py-2 rounded-xl text-xs font-bold active:scale-95 transition-transform">+ Registrar</button>
-              <button onClick={exportarPDF} className="bg-slate-700 text-white px-3 py-2 rounded-xl text-xs font-bold active:scale-95 flex items-center gap-1.5">
+              <button onClick={() => { resetFlow(); setView('flow_mgr'); }} className="desktop-hide bg-brand text-white px-3 py-2 rounded-xl text-xs font-bold active:scale-95 transition-transform">+ Registrar</button>
+              <button onClick={exportarPDF} className="desktop-hide bg-slate-700 text-white px-3 py-2 rounded-xl text-xs font-bold active:scale-95 flex items-center gap-1.5">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                 PDF
               </button>
-              <button onClick={handleLogout} className="p-2 bg-slate-800 rounded-full"><Ico.Logout/></button>
+              <button onClick={handleLogout} className="desktop-hide p-2 bg-slate-800 rounded-full"><Ico.Logout/></button>
             </div>
           </div>
 
@@ -1202,7 +1329,8 @@ function App() {
           </select>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 hide-scrollbar min-h-0">
+        <div className="flex-1 overflow-y-auto p-4 desktop-p space-y-4 pb-24 hide-scrollbar min-h-0">
+          <div className="desktop-max">
 
           {/* Aviso produtos sem custo */}
           {produtos.filter(p => !p.custo || p.custo === 0).length > 0 && (
@@ -1318,8 +1446,10 @@ function App() {
               })}
             </div>
           </div>
+          </div>
         </div>
         <BottomNav/>
+        </div>
       </div>
     );
   }
@@ -1431,7 +1561,9 @@ function App() {
     };
 
     return (
-      <div className="flex-1 flex flex-col bg-gray-100 animate-slide-up h-full pb-safe pt-safe relative min-h-0">
+      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0">
+        <Sidebar/>
+        <div className="flex-1 flex flex-col h-full min-h-0 desktop-main pt-safe pb-safe">
         <TrialBanner/>
         <div className="bg-slate-900 text-white p-6 shadow-md z-10 flex-shrink-0">
           <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
@@ -1495,8 +1627,9 @@ function App() {
             ))}
           </div>
         </div>
-        <BottomNav/>
+        </div>
       </div>
+      <BottomNav/>
     );
   }
 
@@ -1532,7 +1665,9 @@ function App() {
     };
 
     return (
-      <div className="flex-1 flex flex-col bg-gray-100 animate-slide-up h-full pb-safe pt-safe relative min-h-0">
+      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0">
+        <Sidebar/>
+        <div className="flex-1 flex flex-col h-full min-h-0 desktop-main pt-safe pb-safe">
         <TrialBanner/>
         <div className="bg-slate-900 text-white p-6 shadow-md flex-shrink-0">
           <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
@@ -1578,8 +1713,9 @@ function App() {
             ))}
           </div>
         </div>
-        <BottomNav/>
+        </div>
       </div>
+      <BottomNav/>
     );
   }
 
@@ -1617,7 +1753,9 @@ function App() {
     };
 
     return (
-      <div className="flex-1 flex flex-col bg-gray-100 animate-slide-up h-full pb-safe pt-safe relative min-h-0">
+      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0">
+        <Sidebar/>
+        <div className="flex-1 flex flex-col h-full min-h-0 desktop-main pt-safe pb-safe">
         <TrialBanner/>
         <div className="bg-slate-900 text-white p-6 shadow-md flex-shrink-0">
           <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
@@ -1710,8 +1848,9 @@ function App() {
             })}
           </div>
         </div>
-        <BottomNav/>
+        </div>
       </div>
+      <BottomNav/>
     );
   }
 
@@ -1731,7 +1870,9 @@ function App() {
     };
 
     return (
-      <div className="flex-1 flex flex-col bg-gray-100 animate-slide-up h-full pb-safe pt-safe relative min-h-0">
+      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0">
+        <Sidebar/>
+        <div className="flex-1 flex flex-col h-full min-h-0 desktop-main pt-safe pb-safe">
         <TrialBanner/>
         <div className="bg-slate-900 text-white p-6 shadow-md flex-shrink-0">
           <p className="text-brand text-xs font-bold tracking-widest mb-1">CONFIGURAÇÕES</p>
@@ -1785,8 +1926,9 @@ function App() {
             <button onClick={handleLogout} className="w-full mt-4 bg-red-50 text-red-500 font-bold p-3 rounded-xl border border-red-100">Sair da Conta</button>
           </div>
         </div>
-        <BottomNav/>
+        </div>
       </div>
+      <BottomNav/>
     );
   }
 
@@ -1819,20 +1961,47 @@ function TelaAuth({ supabase }) {
       setErro('Preencha todos os campos. Senha mínimo 6 caracteres.'); return;
     }
     setLoading(true); setErro('');
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email, password: senha,
       options: { data: { nome, nome_rede: nomeRede } }
     });
-    if (error) { setErro(error.message); } 
-    else { 
-      setSucesso('Conta criada! Verifique seu email para confirmar o cadastro.');
+    if (error) {
+      if (error.message.toLowerCase().includes('already')) {
+        setErro('Este e-mail ja possui uma conta. Use a opcao Entrar.');
+      } else {
+        setErro('Erro: ' + error.message);
+      }
+    } else {
+      setSucesso('Conta criada! Verifique seu e-mail e depois faca login.');
       setModo('login');
     }
     setLoading(false);
   };
 
   return (
-    <div className="flex-1 flex flex-col p-6 bg-slate-900 justify-center items-center animate-fade-in overflow-y-auto hide-scrollbar">
+    <div className="flex-1 flex bg-slate-900 animate-fade-in overflow-hidden">
+      {/* Desktop: lado esquerdo brand */}
+      <div className="hidden lg:flex flex-col justify-center items-center flex-1 bg-gradient-to-br from-slate-900 to-slate-800 p-12 border-r border-slate-700">
+        <div className="text-center max-w-xs">
+          <div className="w-24 h-24 bg-brand rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl">
+            <div className="text-white w-14 h-14"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="100%" height="100%"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          </div>
+          <h1 className="text-5xl font-black text-white mb-4">Perda<span className="text-brand">Zero</span></h1>
+          <p className="text-slate-400 text-lg leading-relaxed mb-8">Controle de desperdício para redes de alimentação</p>
+          <div className="space-y-4 text-left">
+            {['Registro de perdas via QR Code na cozinha', 'Relatórios de prejuízo por loja e motivo', 'Identificação de responsáveis em tempo real', 'Dashboard completo com insights de ROI'].map((item, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <div className="w-5 h-5 rounded-full bg-brand flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" width="12" height="12"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <p className="text-slate-300 text-sm">{item}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      {/* Formulário */}
+      <div className="flex-1 flex flex-col p-6 justify-center items-center overflow-y-auto hide-scrollbar lg:max-w-md lg:mx-auto">
       <div className="w-full max-w-sm">
         <div className="text-center mb-10">
           <div className="w-20 h-20 bg-brand rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-2xl">
@@ -1870,7 +2039,7 @@ function TelaAuth({ supabase }) {
           <button onClick={modo==='login'?handleLogin:handleCadastro}
             disabled={loading||!email||!senha}
             className={`w-full py-4 rounded-2xl font-bold text-white text-lg transition-all mt-2 ${loading||!email||!senha?'bg-slate-700 text-slate-500':'bg-brand shadow-lg active:scale-95'}`}>
-            {loading ? 'Aguarde...' : modo==='login' ? 'Entrar no Painel' : 'Começar 14 dias grátis →'}
+            {loading ? 'Aguarde...' : modo==='login' ? 'Entrar no Painel' : 'Começar 20 dias grátis →'}
           </button>
 
           {modo === 'login' && (
@@ -1884,9 +2053,10 @@ function TelaAuth({ supabase }) {
 
         {modo === 'cadastro' && (
           <p className="text-slate-600 text-xs text-center mt-6">
-            14 dias grátis, sem cartão. Após o trial, planos a partir de R$ 49/mês.
+            20 dias grátis, sem cartão. Após o trial, planos a partir de R$ 49/mês.
           </p>
         )}
+      </div>
       </div>
     </div>
   );

@@ -41,8 +41,8 @@
 <div id="root" class="w-full h-full bg-white overflow-hidden flex flex-col relative"></div>
 <style>
   @media(min-width:1024px){
-    body { background: #f1f5f9 !important; display: flex !important; justify-content: stretch !important; }
-    #root { max-width: 100% !important; width: 100% !important; box-shadow: none !important; background: #f1f5f9 !important; flex: 1 !important; }
+    body { background: #0f172a !important; align-items: stretch !important; }
+    #root { max-width: 100% !important; box-shadow: none !important; background: #f1f5f9 !important; }
     .desktop-sidebar { display: flex !important; }
     .desktop-main { margin-left: 240px !important; }
     .desktop-hide { display: none !important; }
@@ -129,6 +129,12 @@ function App() {
   const params = new URLSearchParams(window.location.search);
   const slugQR = params.get('loja');
 
+  // Detecção reset de senha via hash do Supabase
+  const _hash = window.location.hash.substring(1);
+  const _hp = new URLSearchParams(_hash);
+  const _isRecovery = _hp.get('type') === 'recovery' && !!_hp.get('access_token');
+  const _recoveryToken = _hp.get('access_token') || '';
+
   // Detecção desktop
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
 
@@ -136,10 +142,7 @@ function App() {
   const [authUser, setAuthUser] = useState(null);   // Usuário Supabase Auth (dono)
   const [perfil, setPerfil] = useState(null);         // Perfil + conta do dono
   const [conta, setConta] = useState(null);            // Dados da conta/empresa
-  const [view, setView] = useState(
-    recoveryType === 'recovery' && recoveryToken ? 'reset_senha' :
-    slugQR ? 'qr_loading' : 'auth'
-  );
+  const [view, setView] = useState(_isRecovery ? 'reset_senha' : slugQR ? 'qr_loading' : 'auth');
 
   // Dados operacionais
   const [lojas, setLojas] = useState([]);
@@ -174,10 +177,10 @@ function App() {
   const [selectedColega, setSelectedColega] = useState(null);
   const [obsColega, setObsColega] = useState('');
   const [isUploading, setIsUploading] = useState(false);
-  const [novaSenha, setNovaSenha] = useState('');
-  const [confirmaSenha, setConfirmaSenha] = useState('');
-  const [resetLoading, setResetLoading] = useState(false);
-  const [resetMsg, setResetMsg] = useState('');
+  const [_novaSenha, _setNovaSenha] = useState('');
+  const [_confirmaSenha, _setConfirmaSenha] = useState('');
+  const [_resetLoading, _setResetLoading] = useState(false);
+  const [_resetMsg, _setResetMsg] = useState('');
   const [fotoModal, setFotoModal] = useState(null);
   const [copiedSlug, setCopiedSlug] = useState(null);
   const fileInputRef = useRef(null);
@@ -708,86 +711,55 @@ function App() {
   );
 
   // ==========================================
-  // TELA: RESET DE SENHA
+  // TELA: AUTH (Login / Cadastro)
   // ==========================================
   if (view === 'reset_senha') {
-    // Se não tem token válido, volta para auth
-    if (!recoveryToken) {
-      setTimeout(() => setView('auth'), 100);
-      return (
-        <div className="flex-1 flex flex-col bg-slate-900 justify-center items-center">
-          <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin mb-4"></div>
-          <p className="text-white font-bold text-sm">Verificando link...</p>
-        </div>
-      );
-    }
     return (
       <div className="flex-1 flex flex-col bg-slate-900 justify-center items-center p-6 animate-fade-in">
         <div className="w-full max-w-sm">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-brand rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <div className="w-16 h-16 bg-brand rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-2xl">
               <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" width="28" height="28"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             </div>
             <h1 className="text-2xl font-black text-white mb-2">Nova Senha</h1>
-            <p className="text-slate-400 text-sm">Digite sua nova senha abaixo</p>
+            <p className="text-slate-400 text-sm">Digite e confirme sua nova senha</p>
           </div>
           <div className="space-y-3">
-            <input type="password" placeholder="Nova senha (min. 6 caracteres)" value={novaSenha}
-              onChange={e => setNovaSenha(e.target.value)}
+            <input type="password" placeholder="Nova senha (min. 6 caracteres)" value={_novaSenha}
+              onChange={e => _setNovaSenha(e.target.value)}
               className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
-            <input type="password" placeholder="Confirmar nova senha" value={confirmaSenha}
-              onChange={e => setConfirmaSenha(e.target.value)}
+            <input type="password" placeholder="Confirmar nova senha" value={_confirmaSenha}
+              onChange={e => _setConfirmaSenha(e.target.value)}
               className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
-            {resetMsg && <p className={resetMsg.includes('sucesso') ? 'text-green-400 text-sm text-center' : 'text-red-400 text-sm text-center'}>{resetMsg}</p>}
-            <button
-              disabled={resetLoading || novaSenha.length < 6 || novaSenha !== confirmaSenha}
-              onClick={async () => {
-                if (novaSenha !== confirmaSenha) { setResetMsg('As senhas nao coincidem.'); return; }
-                setResetLoading(true);
-                try {
-                  // Tenta como access_token JWT primeiro, depois como OTP token
-                  let updateError = null;
-                  const { error: sessionErr } = await supabase.auth.setSession({ 
-                    access_token: recoveryToken, 
-                    refresh_token: recoveryToken 
-                  });
-                  if (!sessionErr) {
-                    const { error } = await supabase.auth.updateUser({ password: novaSenha });
-                    updateError = error;
-                  } else {
-                    // Tenta via verifyOtp
-                    const { error: otpErr } = await supabase.auth.verifyOtp({
-                      token_hash: recoveryToken,
-                      type: 'recovery'
-                    });
-                    if (!otpErr) {
-                      const { error } = await supabase.auth.updateUser({ password: novaSenha });
-                      updateError = error;
-                    } else {
-                      updateError = otpErr;
-                    }
-                  }
-                  const error = updateError;
-                  if (error) { setResetMsg('Erro: ' + error.message); }
-                  else { setResetMsg('Senha alterada com sucesso! Redirecionando...'); setTimeout(() => { window.location.hash = ''; setView('auth'); }, 2000); }
-                } catch(e) { setResetMsg('Erro: ' + (e.message || 'Tente novamente.')); }
-                setResetLoading(false);
-              }}
-              className={`w-full py-4 rounded-2xl font-bold text-white text-lg transition-all ${resetLoading || novaSenha.length < 6 || novaSenha !== confirmaSenha ? 'bg-slate-700 text-slate-500' : 'bg-brand shadow-lg'}`}>
-              {resetLoading ? 'Salvando...' : 'Salvar Nova Senha'}
-            </button>
-            {novaSenha.length > 0 && novaSenha !== confirmaSenha && (
+            {_novaSenha.length > 0 && _novaSenha !== _confirmaSenha && (
               <p className="text-red-400 text-xs text-center">As senhas nao coincidem</p>
             )}
+            {_resetMsg && (
+              <p className={_resetMsg.includes('sucesso') ? 'text-green-400 text-sm text-center py-1' : 'text-red-400 text-sm text-center py-1'}>{_resetMsg}</p>
+            )}
+            <button
+              disabled={_resetLoading || _novaSenha.length < 6 || _novaSenha !== _confirmaSenha}
+              onClick={async () => {
+                _setResetLoading(true);
+                _setResetMsg('');
+                try {
+                  const { error: sErr } = await supabase.auth.setSession({ access_token: _recoveryToken, refresh_token: _recoveryToken });
+                  if (sErr) { _setResetMsg('Link invalido ou expirado. Solicite um novo reset.'); _setResetLoading(false); return; }
+                  const { error: uErr } = await supabase.auth.updateUser({ password: _novaSenha });
+                  if (uErr) { _setResetMsg('Erro: ' + uErr.message); }
+                  else { _setResetMsg('Senha alterada com sucesso! Redirecionando...'); setTimeout(() => { window.location.hash = ''; setView('auth'); }, 2000); }
+                } catch(e) { _setResetMsg('Erro inesperado. Tente novamente.'); }
+                _setResetLoading(false);
+              }}
+              className={_resetLoading || _novaSenha.length < 6 || _novaSenha !== _confirmaSenha ? 'w-full py-4 rounded-2xl font-bold text-white text-lg bg-slate-700 text-slate-500' : 'w-full py-4 rounded-2xl font-bold text-white text-lg bg-brand shadow-lg active:scale-95'}>
+              {_resetLoading ? 'Salvando...' : 'Salvar Nova Senha'}
+            </button>
           </div>
         </div>
       </div>
     );
   }
 
-  // ==========================================
-  // TELA: AUTH (Login / Cadastro)
-  // ==========================================
   if (view === 'auth') {
     return <TelaAuth onLogin={() => {}} supabase={supabase} />;
   }
@@ -1992,18 +1964,13 @@ function TelaAuth({ supabase }) {
       setErro('Preencha todos os campos. Senha mínimo 6 caracteres.'); return;
     }
     setLoading(true); setErro('');
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email, password: senha,
       options: { data: { nome, nome_rede: nomeRede } }
     });
-    if (error) {
-      if (error.message.toLowerCase().includes('already')) {
-        setErro('Este e-mail ja possui uma conta. Use a opcao Entrar.');
-      } else {
-        setErro('Erro: ' + error.message);
-      }
-    } else {
-      setSucesso('Conta criada! Verifique seu e-mail e depois faca login.');
+    if (error) { setErro(error.message); } 
+    else { 
+      setSucesso('Conta criada! Verifique seu email para confirmar o cadastro.');
       setModo('login');
     }
     setLoading(false);
@@ -2070,7 +2037,7 @@ function TelaAuth({ supabase }) {
           <button onClick={modo==='login'?handleLogin:handleCadastro}
             disabled={loading||!email||!senha}
             className={`w-full py-4 rounded-2xl font-bold text-white text-lg transition-all mt-2 ${loading||!email||!senha?'bg-slate-700 text-slate-500':'bg-brand shadow-lg active:scale-95'}`}>
-            {loading ? 'Aguarde...' : modo==='login' ? 'Entrar no Painel' : 'Começar 20 dias grátis →'}
+            {loading ? 'Aguarde...' : modo==='login' ? 'Entrar no Painel' : 'Começar 14 dias grátis →'}
           </button>
 
           {modo === 'login' && (
@@ -2084,7 +2051,7 @@ function TelaAuth({ supabase }) {
 
         {modo === 'cadastro' && (
           <p className="text-slate-600 text-xs text-center mt-6">
-            20 dias grátis, sem cartão. Após o trial, planos a partir de R$ 49/mês.
+            14 dias grátis, sem cartão. Após o trial, planos a partir de R$ 49/mês.
           </p>
         )}
       </div>

@@ -251,6 +251,10 @@ function App() {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setView('rec');
+        return;
+      }
       if (session?.user) carregarPerfil(session.user);
       else { setAuthUser(null); setPerfil(null); setConta(null); setView('auth'); }
     });
@@ -693,8 +697,6 @@ function App() {
     var mCls = rMsg.indexOf('sucesso') >= 0 ? 'text-green-400 text-sm text-center py-1' : 'text-red-400 text-sm text-center py-1';
     var doReset = async function() {
       setRLd(true); setRMsg('');
-      var s = await supabase.auth.setSession({ access_token: _tok, refresh_token: _tok });
-      if (s.error) { setRMsg('Link invalido ou expirado.'); setRLd(false); return; }
       var u = await supabase.auth.updateUser({ password: rNs });
       if (u.error) { setRMsg('Erro ao salvar senha.'); }
       else { setRMsg('Senha alterada com sucesso!'); setTimeout(function(){ window.location.hash = ''; setView('auth'); }, 2000); }

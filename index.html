@@ -711,7 +711,17 @@ function App() {
   // TELA: AUTH (Login / Cadastro)
   // ==========================================
   if (view === 'rec') {
-    const okBtn = !rl && ns.length >= 6 && ns === cs;
+    const canSave = ns.length >= 6 && ns === cs && !rl;
+    const btnCls = canSave ? "w-full py-4 rounded-2xl font-bold text-lg bg-brand text-white" : "w-full py-4 rounded-2xl font-bold text-lg bg-slate-700 text-slate-400";
+    const msgCls = rm.indexOf('sucesso') >= 0 ? "text-green-400 text-sm text-center" : "text-red-400 text-sm text-center";
+    const handleSave = async function() {
+      setRl(true); setRm('');
+      var r1 = await supabase.auth.setSession({ access_token: _token, refresh_token: _token });
+      if (r1.error) { setRm('Link invalido ou expirado.'); setRl(false); return; }
+      var r2 = await supabase.auth.updateUser({ password: ns });
+      if (r2.error) { setRm('Erro ao salvar.'); } else { setRm('Senha alterada! Redirecionando...'); setTimeout(function(){ window.location.hash = ''; setView('auth'); }, 2000); }
+      setRl(false);
+    };
     return (
       <div className="flex-1 flex flex-col bg-slate-900 justify-center items-center p-6">
         <div className="w-full max-w-sm">
@@ -723,22 +733,11 @@ function App() {
             <p className="text-slate-400 text-sm">Digite sua nova senha</p>
           </div>
           <div className="space-y-3">
-            <input type="password" placeholder="Nova senha (min. 6 caracteres)" value={ns} onChange={e => setNs(e.target.value)} className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
-            <input type="password" placeholder="Confirmar nova senha" value={cs} onChange={e => setCs(e.target.value)} className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
-            {ns.length > 0 && ns !== cs && <p className="text-red-400 text-xs text-center">As senhas nao coincidem</p>}
-            {rm !== '' && <p className={rm.includes('sucesso') ? 'text-green-400 text-sm text-center' : 'text-red-400 text-sm text-center'}>{rm}</p>}
-            <button disabled={!okBtn} className={okBtn ? 'w-full py-4 rounded-2xl font-bold text-lg bg-brand text-white shadow-lg' : 'w-full py-4 rounded-2xl font-bold text-lg bg-gray-600 text-gray-400'}
-              onClick={async () => {
-                setRl(true); setRm('');
-                try {
-                  const { error: e1 } = await supabase.auth.setSession({ access_token: _token, refresh_token: _token });
-                  if (e1) { setRm('Link invalido ou expirado. Solicite novo reset.'); setRl(false); return; }
-                  const { error: e2 } = await supabase.auth.updateUser({ password: ns });
-                  if (e2) { setRm('Erro: ' + e2.message); }
-                  else { setRm('Senha alterada com sucesso!'); setTimeout(function(){ window.location.hash = ''; setView('auth'); }, 2000); }
-                } catch(ex) { setRm('Erro inesperado.'); }
-                setRl(false);
-              }}>
+            <input type="password" placeholder="Nova senha (min. 6 caracteres)" value={ns} onChange={e => setNs(e.target.value)} className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium focus:border-brand focus:outline-none"/>
+            <input type="password" placeholder="Confirmar nova senha" value={cs} onChange={e => setCs(e.target.value)} className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium focus:border-brand focus:outline-none"/>
+            {ns.length > 0 && ns !== cs ? <p className="text-red-400 text-xs text-center">As senhas nao coincidem</p> : null}
+            {rm.length > 0 ? <p className={msgCls}>{rm}</p> : null}
+            <button className={btnCls} disabled={!canSave} onClick={handleSave}>
               {rl ? 'Salvando...' : 'Salvar Nova Senha'}
             </button>
           </div>

@@ -115,11 +115,12 @@ const Ico = {
 // ==========================================
 // CONTEXTO DE AUTENTICAÇÃO
 // ==========================================
-// Detecção global de recovery (fora do React, executado imediatamente)
-var _ghp = new URLSearchParams(window.location.hash.substring(1));
-var _gTokHash = _ghp.get('token_hash') || '';
-var _gTok = _ghp.get('access_token') || '';
-var _gRec = _ghp.get('type') === 'recovery' && (_gTokHash.length > 5 || _gTok.length > 5);
+// Detecção global de recovery — via query string (mais confiável no Safari iOS)
+var _gQS = new URLSearchParams(window.location.search);
+var _gHash = new URLSearchParams(window.location.hash.substring(1));
+var _gTokHash = _gQS.get('token_hash') || _gHash.get('token_hash') || '';
+var _gTok = _gQS.get('access_token') || _gHash.get('access_token') || '';
+var _gRec = (_gQS.get('type') === 'recovery' || _gHash.get('type') === 'recovery') && (_gTokHash.length > 5 || _gTok.length > 5);
 
 function App() {
   // Detecta se veio por QR Code: ?loja=slug_aqui

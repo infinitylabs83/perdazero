@@ -35,29 +35,20 @@
     .pb-safe { padding-bottom: calc(1.5rem + env(safe-area-inset-bottom)); }
     .pt-safe { padding-top: env(safe-area-inset-top); }
     .trial-bar { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    @media (min-width: 1024px) {
+      body { background: #0f172a !important; align-items: stretch !important; }
+      #root { max-width: 100% !important; box-shadow: none !important; }
+      .dsk-sidebar { display: flex !important; }
+      .dsk-main { margin-left: 240px !important; }
+      .dsk-hide { display: none !important; }
+    }
+    @media (max-width: 1023px) {
+      .dsk-sidebar { display: none !important; }
+    }
   </style>
 </head>
-<body class="bg-gray-100 w-screen overflow-hidden flex justify-center" style="height:100vh;height:100dvh;">
-<div id="root" class="w-full h-full bg-white overflow-hidden flex flex-col relative" id="app-root"></div>
-<style>
-  @media(min-width:1024px){
-    body { background: #0f172a !important; align-items: stretch !important; }
-    #root { max-width: 100% !important; box-shadow: none !important; background: #f1f5f9 !important; }
-    .desktop-sidebar { display: flex !important; }
-    .desktop-main { margin-left: 240px !important; }
-    .desktop-hide { display: none !important; }
-    .desktop-grid-2 { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 24px !important; }
-    .desktop-grid-3 { display: grid !important; grid-template-columns: 1fr 1fr 1fr !important; gap: 20px !important; }
-    .desktop-max { max-width: 1200px !important; margin: 0 auto !important; }
-    .desktop-p { padding: 32px !important; }
-    .desktop-header { padding: 20px 32px !important; }
-    .chart-container { height: 280px !important; }
-    .desktop-card { border-radius: 16px !important; }
-  }
-  @media(max-width:1023px){
-    .desktop-sidebar { display: none !important; }
-  }
-</style>
+<body class="bg-gray-200 w-screen overflow-hidden flex justify-center" style="height:100vh;height:100dvh;">
+<div id="root" class="w-full h-full bg-white overflow-hidden flex flex-col relative"></div>
 
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
@@ -129,17 +120,14 @@ function App() {
   const params = new URLSearchParams(window.location.search);
   const slugQR = params.get('loja');
   const _hp = new URLSearchParams(window.location.hash.substring(1));
-  const _token = _hp.get('access_token') || '';
-  const _isRec = _hp.get('type') === 'recovery' && !!_token;
-
-  // Detecção desktop
-  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
+  const _tok = _hp.get('access_token') || '';
+  const _rec = _hp.get('type') === 'recovery' && _tok.length > 10;
 
   // Estados principais
   const [authUser, setAuthUser] = useState(null);   // Usuário Supabase Auth (dono)
   const [perfil, setPerfil] = useState(null);         // Perfil + conta do dono
   const [conta, setConta] = useState(null);            // Dados da conta/empresa
-  const [view, setView] = useState(_isRec ? 'rec' : slugQR ? 'qr_loading' : 'auth');
+  const [view, setView] = useState(_rec ? 'rec' : slugQR ? 'qr_loading' : 'auth');
 
   // Dados operacionais
   const [lojas, setLojas] = useState([]);
@@ -174,10 +162,10 @@ function App() {
   const [selectedColega, setSelectedColega] = useState(null);
   const [obsColega, setObsColega] = useState('');
   const [isUploading, setIsUploading] = useState(false);
-  const [ns, setNs] = useState('');
-  const [cs, setCs] = useState('');
-  const [rl, setRl] = useState(false);
-  const [rm, setRm] = useState('');
+  const [rNs, setRNs] = useState('');
+  const [rCs, setRCs] = useState('');
+  const [rLd, setRLd] = useState(false);
+  const [rMsg, setRMsg] = useState('');
   const [fotoModal, setFotoModal] = useState(null);
   const [copiedSlug, setCopiedSlug] = useState(null);
   const fileInputRef = useRef(null);
@@ -186,6 +174,7 @@ function App() {
   const [novoProdNome, setNovoProdNome] = useState('');
   const [novoProdEmoji, setNovoProdEmoji] = useState('📦');
   const [novoProdCusto, setNovoProdCusto] = useState('');
+  const [novoProdUnidade, setNovoProdUnidade] = useState('un');
   const [editingProdId, setEditingProdId] = useState(null);
   const [editProd, setEditProd] = useState({});
 
@@ -640,60 +629,48 @@ function App() {
     {v:'mgr_settings', ico:<Ico.Settings/>, label:'Ajustes'},
   ];
 
+  const Sidebar = () => (
+    <div className="dsk-sidebar hidden fixed left-0 top-0 h-full w-60 bg-slate-900 flex-col z-30 shadow-2xl">
+      <div className="p-5 border-b border-slate-800">
+        <div className="flex items-center gap-3">
+          <LogoRede size={36}/>
+          <div>
+            <p className="text-white font-black text-sm leading-tight">{conta ? conta.nome_rede : 'PerdaZero'}</p>
+            <p className="text-slate-500 text-xs">Painel de Gestao</p>
+          </div>
+        </div>
+      </div>
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        {navItems.map(function(item) {
+          return (
+            <button key={item.v} onClick={() => setView(item.v)}
+              className={view === item.v ? 'w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm bg-brand text-white' : 'w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm text-slate-400 hover:bg-slate-800 hover:text-white'}>
+              <span className="w-5 h-5 flex-shrink-0">{item.ico}</span>
+              {item.label}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="p-4 border-t border-slate-800 space-y-2">
+        <button onClick={() => { resetFlow(); setView('flow_mgr'); }} className="w-full py-3 bg-brand text-white font-bold rounded-xl text-sm">+ Registrar Perda</button>
+        <button onClick={handleLogout} className="w-full py-2 text-slate-500 font-bold rounded-xl text-xs">Sair</button>
+      </div>
+    </div>
+  );
+
   const BottomNav = () => (
-    <div className="desktop-hide bg-white border-t border-gray-200 p-2 pb-safe px-2 flex justify-between items-center absolute bottom-0 w-full z-20 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-      {navItems.map(({v,ico,label}) => (
+    <div className="dsk-hide bg-white border-t border-gray-200 p-2 pb-safe px-2 flex justify-between items-center absolute bottom-0 w-full z-20 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+      {[
+        {v:'dashboard', ico:<Ico.Dashboard/>, label:'Painel'},
+        {v:'mgr_produtos', ico:<Ico.Box/>, label:'Produtos'},
+        {v:'mgr_lojas', ico:<Ico.Store/>, label:'Unidades'},
+        {v:'mgr_equipe', ico:<Ico.Users/>, label:'Equipe'},
+        {v:'mgr_settings', ico:<Ico.Settings/>, label:'Ajustes'},
+      ].map(({v,ico,label}) => (
         <button key={v} onClick={() => setView(v)} className={`flex flex-col items-center p-2 flex-1 ${view===v?'text-brand':'text-slate-400'}`}>
           {ico}<span className="text-[9px] font-bold uppercase mt-1">{label}</span>
         </button>
       ))}
-    </div>
-  );
-
-  const Sidebar = () => (
-    <div className="desktop-sidebar hidden fixed left-0 top-0 h-full w-60 bg-slate-900 flex-col z-30 shadow-2xl">
-      {/* Logo */}
-      <div className="p-6 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <LogoRede size={36}/>
-          <div>
-            <p className="text-white font-black text-sm leading-tight">{conta?.nome_rede || 'PerdaZero'}</p>
-            <p className="text-slate-500 text-[10px] font-medium">Painel Administrativo</p>
-          </div>
-        </div>
-        {conta?.plano === 'trial' && (
-          <div className="mt-3 bg-amber-500/10 border border-amber-500/30 rounded-xl p-2 text-center">
-            <p className="text-amber-400 text-[10px] font-bold">{diasRestantesTrial(conta.trial_expira_em)} dias de trial restantes</p>
-            <button onClick={() => window.open(LANDING_URL,'_blank')} className="text-[10px] text-amber-300 font-bold underline mt-0.5">Assinar agora</button>
-          </div>
-        )}
-      </div>
-      {/* Nav */}
-      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-        {navItems.map(({v,ico,label}) => (
-          <button key={v} onClick={() => setView(v)}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${view===v ? 'bg-brand text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-            <span className="w-5 h-5 flex-shrink-0">{ico}</span>
-            {label}
-          </button>
-        ))}
-      </nav>
-      {/* Footer */}
-      <div className="p-4 border-t border-slate-800 space-y-2">
-        <button onClick={() => { resetFlow(); setView('flow_mgr'); }}
-          className="w-full py-3 bg-brand text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2">
-          + Registrar Perda
-        </button>
-        <button onClick={exportarPDF}
-          className="w-full py-2.5 bg-slate-800 text-slate-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          Exportar PDF
-        </button>
-        <button onClick={handleLogout}
-          className="w-full py-2.5 text-slate-500 font-bold rounded-xl text-xs flex items-center justify-center gap-2 hover:text-red-400">
-          <Ico.Logout/> Sair
-        </button>
-      </div>
     </div>
   );
 
@@ -711,34 +688,35 @@ function App() {
   // TELA: AUTH (Login / Cadastro)
   // ==========================================
   if (view === 'rec') {
-    const canSave = ns.length >= 6 && ns === cs && !rl;
-    const btnCls = canSave ? "w-full py-4 rounded-2xl font-bold text-lg bg-brand text-white" : "w-full py-4 rounded-2xl font-bold text-lg bg-slate-700 text-slate-400";
-    const msgCls = rm.indexOf('sucesso') >= 0 ? "text-green-400 text-sm text-center" : "text-red-400 text-sm text-center";
-    const handleSave = async function() {
-      setRl(true); setRm('');
-      var r1 = await supabase.auth.setSession({ access_token: _token, refresh_token: _token });
-      if (r1.error) { setRm('Link invalido ou expirado.'); setRl(false); return; }
-      var r2 = await supabase.auth.updateUser({ password: ns });
-      if (r2.error) { setRm('Erro ao salvar.'); } else { setRm('Senha alterada! Redirecionando...'); setTimeout(function(){ window.location.hash = ''; setView('auth'); }, 2000); }
-      setRl(false);
+    var okSave = !rLd && rNs.length >= 6 && rNs === rCs;
+    var bCls = okSave ? 'w-full py-4 rounded-2xl font-bold text-lg bg-brand text-white shadow-lg' : 'w-full py-4 rounded-2xl font-bold text-lg bg-slate-700 text-slate-400 cursor-not-allowed';
+    var mCls = rMsg.indexOf('sucesso') >= 0 ? 'text-green-400 text-sm text-center py-1' : 'text-red-400 text-sm text-center py-1';
+    var doReset = async function() {
+      setRLd(true); setRMsg('');
+      var s = await supabase.auth.setSession({ access_token: _tok, refresh_token: _tok });
+      if (s.error) { setRMsg('Link invalido ou expirado.'); setRLd(false); return; }
+      var u = await supabase.auth.updateUser({ password: rNs });
+      if (u.error) { setRMsg('Erro ao salvar senha.'); }
+      else { setRMsg('Senha alterada com sucesso!'); setTimeout(function(){ window.location.hash = ''; setView('auth'); }, 2000); }
+      setRLd(false);
     };
     return (
       <div className="flex-1 flex flex-col bg-slate-900 justify-center items-center p-6">
         <div className="w-full max-w-sm">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-brand rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <div className="w-16 h-16 bg-brand rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-2xl">
               <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" width="28" height="28"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             </div>
             <h1 className="text-2xl font-black text-white mb-2">Redefinir Senha</h1>
-            <p className="text-slate-400 text-sm">Digite sua nova senha</p>
+            <p className="text-slate-400 text-sm">Digite sua nova senha abaixo</p>
           </div>
           <div className="space-y-3">
-            <input type="password" placeholder="Nova senha (min. 6 caracteres)" value={ns} onChange={e => setNs(e.target.value)} className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium focus:border-brand focus:outline-none"/>
-            <input type="password" placeholder="Confirmar nova senha" value={cs} onChange={e => setCs(e.target.value)} className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium focus:border-brand focus:outline-none"/>
-            {ns.length > 0 && ns !== cs ? <p className="text-red-400 text-xs text-center">As senhas nao coincidem</p> : null}
-            {rm.length > 0 ? <p className={msgCls}>{rm}</p> : null}
-            <button className={btnCls} disabled={!canSave} onClick={handleSave}>
-              {rl ? 'Salvando...' : 'Salvar Nova Senha'}
+            <input type="password" placeholder="Nova senha (min. 6 caracteres)" value={rNs} onChange={e => setRNs(e.target.value)} className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium focus:border-brand focus:outline-none"/>
+            <input type="password" placeholder="Confirmar nova senha" value={rCs} onChange={e => setRCs(e.target.value)} className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium focus:border-brand focus:outline-none"/>
+            {rNs.length > 0 && rNs !== rCs ? <p className="text-orange-400 text-xs text-center">As senhas nao coincidem</p> : null}
+            {rMsg.length > 0 ? <p className={mCls}>{rMsg}</p> : null}
+            <button className={bCls} disabled={!okSave} onClick={doReset}>
+              {rLd ? 'Salvando...' : 'Salvar Nova Senha'}
             </button>
           </div>
         </div>
@@ -990,7 +968,7 @@ function App() {
                     <span className="text-3xl mr-3">{p.icone}</span>
                     <div className="flex-1 min-w-0">
                       <span className="font-bold text-slate-700 text-sm block leading-tight truncate">{p.nome}</span>
-                      {p.custo > 0 ? <span className="text-[10px] text-brand font-bold">{fmt(p.custo)}/un</span> : <span className="text-[10px] text-orange-400 font-bold">sem custo</span>}
+                      {p.custo > 0 ? <span className="text-[10px] text-brand font-bold">{fmt(p.custo)}/{p.unidade||'un'}</span> : <span className="text-[10px] text-orange-400 font-bold">sem custo</span>}
                     </div>
                   </button>
                 ))}
@@ -1181,9 +1159,7 @@ function App() {
     };
 
     return (
-      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0">
-        <Sidebar/>
-        <div className="flex-1 flex flex-col h-full min-h-0 desktop-main pt-safe pb-safe">
+      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0"><Sidebar/><div className="dsk-main flex-1 flex flex-col h-full min-h-0 pt-safe pb-safe overflow-hidden">
         <PhotoModal/>
 
         {showOnboarding && (() => {
@@ -1191,89 +1167,99 @@ function App() {
             {
               icon: '👋',
               titulo: 'Seja bem-vindo ao PerdaZero!',
-              desc: 'Você acabou de dar o primeiro passo para parar de perder dinheiro com desperdício. Em menos de 5 minutos você vai estar pronto para começar.',
-              dica: 'Vamos configurar tudo juntos, passo a passo.',
+              desc: 'Você acabou de dar o primeiro passo para parar de perder dinheiro com desperdício. Em menos de 5 minutos vamos configurar tudo juntos, do zero.',
+              dica: 'Não se preocupe: cada passo é simples e você pode voltar quando quiser.',
               acao: null,
-              label: 'Vamos lá!'
+              label: 'Vamos lá!',
+              pular: false
             },
             {
               icon: '🏪',
-              titulo: 'Primeiro: cadastre suas unidades',
-              desc: 'Cada loja que você tem precisa ser cadastrada aqui. O PerdaZero vai gerar um QR Code exclusivo para cada uma — você imprime, cola na cozinha, e pronto.',
-              dica: 'Dica: use o nome que seus funcionários já conhecem. Ex: "Loja Centro", "Shopping Sul".',
+              titulo: 'Passo 1 — Cadastre suas unidades',
+              desc: 'Cada loja precisa ser cadastrada separadamente. Você vai dar um nome para ela — use algo que seus funcionários já conhecem, como "Loja Centro" ou "Shopping Sul".',
+              dica: 'Depois de cadastrar, vá em Unidades → toque no botão "Baixar para Imprimir" → um PDF elegante com o QR Code e o logo da sua rede vai abrir. Imprima, plastifique e cole na cozinha.',
               acao: () => setView('mgr_lojas'),
-              label: 'Cadastrar minha loja agora'
+              label: 'Ir para Unidades agora',
+              pular: true
             },
             {
               icon: '📦',
-              titulo: 'Segundo: adicione seus produtos',
-              desc: 'Cadastre os ingredientes e itens que podem ser perdidos na sua operação. O mais importante é colocar o custo de cada um — é assim que o app calcula o prejuízo real.',
-              dica: 'Dica: comece pelos ingredientes mais caros ou que mais desperdica. Você pode adicionar mais depois.',
+              titulo: 'Passo 2 — Cadastre seus produtos',
+              desc: 'Adicione todos os ingredientes que podem ser desperdiçados. Para cada um, informe o nome, o emoji, a unidade de medida (kg, litro ou unidade) e o custo unitário.',
+              dica: 'O custo é o que faz a mágica: sem ele o app não consegue calcular o prejuízo real em reais. Exemplo: Tomate → R$ 8,00/kg. Azeite → R$ 25,00/L.',
               acao: () => setView('mgr_produtos'),
-              label: 'Cadastrar produtos agora'
+              label: 'Ir para Produtos agora',
+              pular: true
             },
             {
               icon: '👥',
-              titulo: 'Terceiro: cadastre sua equipe',
-              desc: 'Adicione os funcionários que trabalham em cada loja. Quando eles escanear o QR Code, vão se identificar antes de registrar. Isso permite saber quem registrou cada perda.',
-              dica: 'Dica: gerentes podem ter um PIN de 4 dígitos para acesso diferenciado. Atendentes simples não precisam de senha.',
+              titulo: 'Passo 3 — Cadastre sua equipe',
+              desc: 'Adicione os funcionários de cada loja. Quando eles escanear o QR Code, vão escolher o próprio nome antes de registrar — assim você sabe exatamente quem registrou cada perda.',
+              dica: 'Gerentes podem ter um PIN de 4 dígitos para acesso protegido. Atendentes operacionais não precisam de senha — é mais rápido assim.',
               acao: () => setView('mgr_equipe'),
-              label: 'Cadastrar equipe agora'
+              label: 'Ir para Equipe agora',
+              pular: true
             },
             {
-              icon: '✅',
-              titulo: 'Tudo pronto para começar!',
-              desc: 'Agora é só imprimir os QR Codes (em Unidades → Baixar para Imprimir) e colar na cozinha de cada loja. Seus funcionários já podem começar a registrar as perdas.',
-              dica: 'A partir de agora você vai ter relatórios completos de desperdício direto aqui no painel.',
+              icon: '🎉',
+              titulo: 'Configuração concluída!',
+              desc: 'Seu PerdaZero está pronto. A partir de agora seus funcionários já podem registrar as perdas pelo QR Code e você acompanha tudo aqui no painel em tempo real.',
+              dica: 'Dica final: quanto mais completo o cadastro de produtos (com custo e unidade correta), mais preciso será o relatório de prejuízo. Vale a pena dedicar 5 minutos nisso agora.',
               acao: null,
-              label: 'Ir para o painel'
+              label: 'Ir para o Painel',
+              pular: false
             }
           ];
           const step = steps[obStep];
           const isLast = obStep === steps.length - 1;
           return (
-            <div className="absolute inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-5 animate-fade-in">
-              <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden">
+            <div className="absolute inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-4 animate-fade-in overflow-y-auto">
+              <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden my-auto">
                 {/* Progress bar */}
-                <div className="h-1.5 bg-gray-100">
-                  <div className="h-full bg-brand transition-all duration-500" style={{width: ((obStep+1)/steps.length*100)+'%'}}></div>
+                <div className="h-2 bg-gray-100">
+                  <div className="h-full bg-brand transition-all duration-500 rounded-full" style={{width: ((obStep+1)/steps.length*100)+'%'}}></div>
                 </div>
                 <div className="p-6">
                   {/* Ícone e contador */}
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-4xl">{step.icon}</span>
-                    <span className="text-xs text-slate-400 font-bold">{obStep+1} de {steps.length}</span>
+                  <div className="flex items-center justify-between mb-5">
+                    <span className="text-5xl">{step.icon}</span>
+                    <div className="flex gap-1">
+                      {steps.map((_,i) => (
+                        <div key={i} className={i===obStep ? 'w-6 h-2 rounded-full bg-brand' : 'w-2 h-2 rounded-full bg-gray-200'}></div>
+                      ))}
+                    </div>
                   </div>
-                  {/* Título */}
-                  <h2 className="text-xl font-black text-slate-800 mb-3 leading-tight">{step.titulo}</h2>
-                  {/* Descrição */}
-                  <p className="text-slate-600 text-sm leading-relaxed mb-4">{step.desc}</p>
+                  {/* Título — fonte maior */}
+                  <h2 className="text-2xl font-black text-slate-800 mb-3 leading-tight">{step.titulo}</h2>
+                  {/* Descrição — fonte maior e mais espaçada */}
+                  <p className="text-slate-600 text-base leading-relaxed mb-4">{step.desc}</p>
                   {/* Dica */}
-                  <div className="bg-brand/10 border border-brand/20 rounded-xl p-3 mb-5">
-                    <p className="text-brand text-xs font-medium leading-relaxed">{step.dica}</p>
+                  <div className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-5">
+                    <p className="text-green-800 text-sm font-medium leading-relaxed">{step.dica}</p>
                   </div>
                   {/* Botões */}
                   <div className="space-y-2">
                     <button onClick={() => { if(step.acao) step.acao(); if(isLast) { setShowOnboarding(false); setObStep(0); } else setObStep(s=>s+1); }}
-                      className="w-full py-4 bg-brand text-white font-bold rounded-2xl text-sm active:scale-95 transition-transform shadow-lg">
-                      {step.acao ? step.label : (isLast ? 'Ir para o painel' : step.label)}
+                      className="w-full py-4 bg-brand text-white font-bold rounded-2xl text-base active:scale-95 transition-transform shadow-lg">
+                      {step.acao ? step.label : (isLast ? 'Ir para o Painel' : step.label)}
                     </button>
-                    {!isLast && (
-                      <button onClick={() => setObStep(s=>s+1)} className="w-full py-2.5 text-slate-400 font-medium text-sm rounded-xl">
-                        {step.acao ? 'Pular por agora' : 'Continuar'}
+                    {step.pular && (
+                      <button onClick={() => setObStep(s=>s+1)} className="w-full py-3 text-slate-400 font-medium text-sm rounded-xl bg-gray-50">
+                        Pular por agora — fazer depois
                       </button>
                     )}
-                    {obStep > 0 && !isLast && (
-                      <button onClick={() => setObStep(s=>s-1)} className="w-full py-2 text-slate-300 text-xs">
-                        Voltar
+                    {obStep > 0 && (
+                      <button onClick={() => setObStep(s=>s-1)} className="w-full py-2 text-slate-400 text-sm font-medium flex items-center justify-center gap-1">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="m15 18-6-6 6-6"/></svg>
+                        Voltar ao passo anterior
                       </button>
                     )}
                   </div>
                 </div>
               </div>
               {obStep === 0 && (
-                <button onClick={() => { setShowOnboarding(false); setObStep(0); }} className="mt-4 text-slate-500 text-xs font-medium">
-                  Ja sei o que estou fazendo — pular configuracao
+                <button onClick={() => { setShowOnboarding(false); setObStep(0); }} className="mt-4 text-slate-400 text-sm font-medium py-2 px-4">
+                  Já sei usar — pular configuração
                 </button>
               )}
             </div>
@@ -1281,19 +1267,19 @@ function App() {
         })()}
 
         <TrialBanner/>
-        <div className="bg-slate-900 text-white desktop-header p-5 flex flex-col shadow-md z-10 flex-shrink-0">
+        <div className="bg-slate-900 text-white p-5 flex flex-col shadow-md z-10 flex-shrink-0">
           <div className="flex justify-between items-center mb-3">
             <div>
               <p className="text-brand text-[10px] font-bold tracking-widest uppercase">Painel de Gestão</p>
               <h2 className="text-xl font-bold">{conta?.nome_rede}</h2>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => { resetFlow(); setView('flow_mgr'); }} className="desktop-hide bg-brand text-white px-3 py-2 rounded-xl text-xs font-bold active:scale-95 transition-transform">+ Registrar</button>
-              <button onClick={exportarPDF} className="desktop-hide bg-slate-700 text-white px-3 py-2 rounded-xl text-xs font-bold active:scale-95 flex items-center gap-1.5">
+              <button onClick={() => { resetFlow(); setView('flow_mgr'); }} className="bg-brand text-white px-3 py-2 rounded-xl text-xs font-bold active:scale-95 transition-transform">+ Registrar</button>
+              <button onClick={exportarPDF} className="bg-slate-700 text-white px-3 py-2 rounded-xl text-xs font-bold active:scale-95 flex items-center gap-1.5">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                 PDF
               </button>
-              <button onClick={handleLogout} className="desktop-hide p-2 bg-slate-800 rounded-full"><Ico.Logout/></button>
+              <button onClick={handleLogout} className="p-2 bg-slate-800 rounded-full"><Ico.Logout/></button>
             </div>
           </div>
 
@@ -1318,8 +1304,7 @@ function App() {
           </select>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 desktop-p space-y-4 pb-24 hide-scrollbar min-h-0">
-          <div className="desktop-max">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 hide-scrollbar min-h-0">
 
           {/* Aviso produtos sem custo */}
           {produtos.filter(p => !p.custo || p.custo === 0).length > 0 && (
@@ -1435,11 +1420,9 @@ function App() {
               })}
             </div>
           </div>
-          </div>
         </div>
         <BottomNav/>
-        </div>
-      </div>
+      </div></div>
     );
   }
 
@@ -1550,9 +1533,7 @@ function App() {
     };
 
     return (
-      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0">
-        <Sidebar/>
-        <div className="flex-1 flex flex-col h-full min-h-0 desktop-main pt-safe pb-safe">
+      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0"><Sidebar/><div className="dsk-main flex-1 flex flex-col h-full min-h-0 pt-safe pb-safe overflow-hidden">
         <TrialBanner/>
         <div className="bg-slate-900 text-white p-6 shadow-md z-10 flex-shrink-0">
           <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
@@ -1616,9 +1597,8 @@ function App() {
             ))}
           </div>
         </div>
-        </div>
-      </div>
-      <BottomNav/>
+        <BottomNav/>
+      </div></div>
     );
   }
 
@@ -1629,13 +1609,13 @@ function App() {
     const addProd = async () => {
       if (!novoProdNome.trim()) return;
       const custo = parseFloat(novoProdCusto.replace(',','.')) || 0;
-      const obj = { conta_id: conta.id, nome: novoProdNome, icone: novoProdEmoji || '📦', custo };
+      const obj = { conta_id: conta.id, nome: novoProdNome, icone: novoProdEmoji || '📦', custo, unidade: novoProdUnidade || 'un' };
       if (supabase) {
         const { data, error } = await supabase.from('produtos').insert([obj]).select();
         if (error) return alert('Erro: ' + error.message);
         setProdutos([data[0], ...produtos]);
       }
-      setNovoProdNome(''); setNovoProdEmoji('📦'); setNovoProdCusto('');
+      setNovoProdNome(''); setNovoProdEmoji('📦'); setNovoProdCusto(''); setNovoProdUnidade('un');
     };
 
     const saveProd = async (id) => {
@@ -1654,9 +1634,7 @@ function App() {
     };
 
     return (
-      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0">
-        <Sidebar/>
-        <div className="flex-1 flex flex-col h-full min-h-0 desktop-main pt-safe pb-safe">
+      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0"><Sidebar/><div className="dsk-main flex-1 flex flex-col h-full min-h-0 pt-safe pb-safe overflow-hidden">
         <TrialBanner/>
         <div className="bg-slate-900 text-white p-6 shadow-md flex-shrink-0">
           <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
@@ -1671,8 +1649,16 @@ function App() {
               <input type="text" value={novoProdNome} onChange={e => { setNovoProdNome(e.target.value); setNovoProdEmoji(buscarEmoji(e.target.value)); }}
                 className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-slate-800 focus:border-brand focus:outline-none" placeholder="Nome do produto"/>
             </div>
-            <input type="text" value={novoProdCusto} onChange={e => setNovoProdCusto(e.target.value)}
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold focus:border-brand focus:outline-none mb-4" placeholder="Custo unitário (R$) — obrigatório para relatórios"/>
+            <div className="flex gap-2 mb-3">
+              <input type="text" inputMode="decimal" value={novoProdCusto} onChange={e => setNovoProdCusto(e.target.value)}
+                className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold focus:border-brand focus:outline-none" placeholder="Custo (R$) — obrigatório"/>
+              <select value={novoProdUnidade} onChange={e => setNovoProdUnidade(e.target.value)}
+                className="w-24 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-slate-700 focus:border-brand focus:outline-none">
+                <option value="un">/ un</option>
+                <option value="kg">/ kg</option>
+                <option value="L">/ L</option>
+              </select>
+            </div>
             {!novoProdCusto && novoProdNome && <p className="text-orange-500 text-xs font-bold mb-3">⚠️ Sem custo, o prejuízo ficará como R$ 0,00 nos relatórios.</p>}
             <button onClick={addProd} disabled={!novoProdNome.trim()}
               className={`w-full font-bold p-4 rounded-xl ${novoProdNome.trim()?'bg-brand text-white':'bg-gray-200 text-gray-400'}`}>Adicionar</button>
@@ -1695,16 +1681,15 @@ function App() {
                 <span className="text-4xl bg-gray-50 p-3 rounded-2xl mb-2 shadow-inner">{p.icone}</span>
                 <span className="font-bold text-slate-700 text-sm text-center leading-tight mb-1">{p.nome}</span>
                 {p.custo > 0
-                  ? <span className="text-[10px] bg-green-50 text-brand px-2 py-0.5 rounded font-bold">{fmt(p.custo)}</span>
+                  ? <span className="text-[10px] bg-green-50 text-brand px-2 py-0.5 rounded font-bold">{fmt(p.custo)}/{p.unidade||'un'}</span>
                   : <span className="text-[10px] bg-orange-50 text-orange-500 px-2 py-0.5 rounded font-bold">Sem custo ⚠️</span>
                 }
               </div>
             ))}
           </div>
         </div>
-        </div>
-      </div>
-      <BottomNav/>
+        <BottomNav/>
+      </div></div>
     );
   }
 
@@ -1742,9 +1727,7 @@ function App() {
     };
 
     return (
-      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0">
-        <Sidebar/>
-        <div className="flex-1 flex flex-col h-full min-h-0 desktop-main pt-safe pb-safe">
+      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0"><Sidebar/><div className="dsk-main flex-1 flex flex-col h-full min-h-0 pt-safe pb-safe overflow-hidden">
         <TrialBanner/>
         <div className="bg-slate-900 text-white p-6 shadow-md flex-shrink-0">
           <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
@@ -1837,9 +1820,8 @@ function App() {
             })}
           </div>
         </div>
-        </div>
-      </div>
-      <BottomNav/>
+        <BottomNav/>
+      </div></div>
     );
   }
 
@@ -1859,9 +1841,7 @@ function App() {
     };
 
     return (
-      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0">
-        <Sidebar/>
-        <div className="flex-1 flex flex-col h-full min-h-0 desktop-main pt-safe pb-safe">
+      <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0"><Sidebar/><div className="dsk-main flex-1 flex flex-col h-full min-h-0 pt-safe pb-safe overflow-hidden">
         <TrialBanner/>
         <div className="bg-slate-900 text-white p-6 shadow-md flex-shrink-0">
           <p className="text-brand text-xs font-bold tracking-widest mb-1">CONFIGURAÇÕES</p>
@@ -1915,9 +1895,8 @@ function App() {
             <button onClick={handleLogout} className="w-full mt-4 bg-red-50 text-red-500 font-bold p-3 rounded-xl border border-red-100">Sair da Conta</button>
           </div>
         </div>
-        </div>
-      </div>
-      <BottomNav/>
+        <BottomNav/>
+      </div></div>
     );
   }
 
@@ -1950,42 +1929,28 @@ function TelaAuth({ supabase }) {
       setErro('Preencha todos os campos. Senha mínimo 6 caracteres.'); return;
     }
     setLoading(true); setErro('');
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email, password: senha,
       options: { data: { nome, nome_rede: nomeRede } }
     });
-    if (error) { setErro(error.message); } 
-    else { 
-      setSucesso('Conta criada! Verifique seu email para confirmar o cadastro.');
+    if (error) {
+      if (error.message.includes('already registered') || error.message.includes('already been registered')) {
+        setErro('Este e-mail já possui uma conta. Use a opção Entrar.');
+      } else {
+        setErro('Erro ao criar conta: ' + error.message);
+      }
+    } else if (data?.user && !data?.session) {
+      setSucesso('Conta criada! Verifique seu e-mail para confirmar o cadastro e depois faça login.');
+      setModo('login');
+    } else {
+      setSucesso('Conta criada com sucesso!');
       setModo('login');
     }
     setLoading(false);
   };
 
   return (
-    <div className="flex-1 flex bg-slate-900 animate-fade-in overflow-hidden">
-      {/* Desktop: lado esquerdo brand */}
-      <div className="hidden lg:flex flex-col justify-center items-center flex-1 bg-gradient-to-br from-slate-900 to-slate-800 p-12 border-r border-slate-700">
-        <div className="text-center max-w-xs">
-          <div className="w-24 h-24 bg-brand rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl">
-            <div className="text-white w-14 h-14"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="100%" height="100%"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
-          </div>
-          <h1 className="text-5xl font-black text-white mb-4">Perda<span className="text-brand">Zero</span></h1>
-          <p className="text-slate-400 text-lg leading-relaxed mb-8">Controle de desperdício para redes de alimentação</p>
-          <div className="space-y-4 text-left">
-            {['Registro de perdas via QR Code na cozinha', 'Relatórios de prejuízo por loja e motivo', 'Identificação de responsáveis em tempo real', 'Dashboard completo com insights de ROI'].map((item, i) => (
-              <div key={i} className="flex items-start gap-3">
-                <div className="w-5 h-5 rounded-full bg-brand flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" width="12" height="12"><polyline points="20 6 9 17 4 12"/></svg>
-                </div>
-                <p className="text-slate-300 text-sm">{item}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      {/* Formulário */}
-      <div className="flex-1 flex flex-col p-6 justify-center items-center overflow-y-auto hide-scrollbar lg:max-w-md lg:mx-auto">
+    <div className="flex-1 flex flex-col p-6 bg-slate-900 justify-center items-center animate-fade-in overflow-y-auto hide-scrollbar">
       <div className="w-full max-w-sm">
         <div className="text-center mb-10">
           <div className="w-20 h-20 bg-brand rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-2xl">
@@ -2023,7 +1988,7 @@ function TelaAuth({ supabase }) {
           <button onClick={modo==='login'?handleLogin:handleCadastro}
             disabled={loading||!email||!senha}
             className={`w-full py-4 rounded-2xl font-bold text-white text-lg transition-all mt-2 ${loading||!email||!senha?'bg-slate-700 text-slate-500':'bg-brand shadow-lg active:scale-95'}`}>
-            {loading ? 'Aguarde...' : modo==='login' ? 'Entrar no Painel' : 'Começar 14 dias grátis →'}
+            {loading ? 'Aguarde...' : modo==='login' ? 'Entrar no Painel' : 'Começar 20 dias grátis →'}
           </button>
 
           {modo === 'login' && (
@@ -2037,10 +2002,9 @@ function TelaAuth({ supabase }) {
 
         {modo === 'cadastro' && (
           <p className="text-slate-600 text-xs text-center mt-6">
-            14 dias grátis, sem cartão. Após o trial, planos a partir de R$ 49/mês.
+            20 dias grátis, sem cartão. Após o trial, planos a partir de R$ 49/mês.
           </p>
         )}
-      </div>
       </div>
     </div>
   );

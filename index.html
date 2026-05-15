@@ -38,7 +38,7 @@
   </style>
 </head>
 <body class="bg-gray-100 w-screen overflow-hidden flex justify-center" style="height:100vh;height:100dvh;">
-<div id="root" class="w-full h-full bg-white overflow-hidden flex flex-col relative"></div>
+<div id="root" class="w-full h-full bg-white overflow-hidden flex flex-col relative" id="app-root"></div>
 <style>
   @media(min-width:1024px){
     body { background: #0f172a !important; align-items: stretch !important; }
@@ -128,12 +128,9 @@ function App() {
   // Detecta se veio por QR Code: ?loja=slug_aqui
   const params = new URLSearchParams(window.location.search);
   const slugQR = params.get('loja');
-
-  // Detecção reset de senha via hash do Supabase
-  const _hash = window.location.hash.substring(1);
-  const _hp = new URLSearchParams(_hash);
-  const _isRecovery = _hp.get('type') === 'recovery' && !!_hp.get('access_token');
-  const _recoveryToken = _hp.get('access_token') || '';
+  const _hp = new URLSearchParams(window.location.hash.substring(1));
+  const _token = _hp.get('access_token') || '';
+  const _isRec = _hp.get('type') === 'recovery' && !!_token;
 
   // Detecção desktop
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
@@ -142,7 +139,7 @@ function App() {
   const [authUser, setAuthUser] = useState(null);   // Usuário Supabase Auth (dono)
   const [perfil, setPerfil] = useState(null);         // Perfil + conta do dono
   const [conta, setConta] = useState(null);            // Dados da conta/empresa
-  const [view, setView] = useState(_isRecovery ? 'reset_senha' : slugQR ? 'qr_loading' : 'auth');
+  const [view, setView] = useState(_isRec ? 'rec' : slugQR ? 'qr_loading' : 'auth');
 
   // Dados operacionais
   const [lojas, setLojas] = useState([]);
@@ -177,10 +174,10 @@ function App() {
   const [selectedColega, setSelectedColega] = useState(null);
   const [obsColega, setObsColega] = useState('');
   const [isUploading, setIsUploading] = useState(false);
-  const [_novaSenha, _setNovaSenha] = useState('');
-  const [_confirmaSenha, _setConfirmaSenha] = useState('');
-  const [_resetLoading, _setResetLoading] = useState(false);
-  const [_resetMsg, _setResetMsg] = useState('');
+  const [ns, setNs] = useState('');
+  const [cs, setCs] = useState('');
+  const [rl, setRl] = useState(false);
+  const [rm, setRm] = useState('');
   const [fotoModal, setFotoModal] = useState(null);
   const [copiedSlug, setCopiedSlug] = useState(null);
   const fileInputRef = useRef(null);
@@ -713,46 +710,36 @@ function App() {
   // ==========================================
   // TELA: AUTH (Login / Cadastro)
   // ==========================================
-  if (view === 'reset_senha') {
+  if (view === 'rec') {
+    const okBtn = !rl && ns.length >= 6 && ns === cs;
     return (
-      <div className="flex-1 flex flex-col bg-slate-900 justify-center items-center p-6 animate-fade-in">
+      <div className="flex-1 flex flex-col bg-slate-900 justify-center items-center p-6">
         <div className="w-full max-w-sm">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-brand rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-2xl">
+            <div className="w-16 h-16 bg-brand rounded-2xl flex items-center justify-center mx-auto mb-4">
               <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" width="28" height="28"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             </div>
-            <h1 className="text-2xl font-black text-white mb-2">Nova Senha</h1>
-            <p className="text-slate-400 text-sm">Digite e confirme sua nova senha</p>
+            <h1 className="text-2xl font-black text-white mb-2">Redefinir Senha</h1>
+            <p className="text-slate-400 text-sm">Digite sua nova senha</p>
           </div>
           <div className="space-y-3">
-            <input type="password" placeholder="Nova senha (min. 6 caracteres)" value={_novaSenha}
-              onChange={e => _setNovaSenha(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
-            <input type="password" placeholder="Confirmar nova senha" value={_confirmaSenha}
-              onChange={e => _setConfirmaSenha(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
-            {_novaSenha.length > 0 && _novaSenha !== _confirmaSenha && (
-              <p className="text-red-400 text-xs text-center">As senhas nao coincidem</p>
-            )}
-            {_resetMsg && (
-              <p className={_resetMsg.includes('sucesso') ? 'text-green-400 text-sm text-center py-1' : 'text-red-400 text-sm text-center py-1'}>{_resetMsg}</p>
-            )}
-            <button
-              disabled={_resetLoading || _novaSenha.length < 6 || _novaSenha !== _confirmaSenha}
+            <input type="password" placeholder="Nova senha (min. 6 caracteres)" value={ns} onChange={e => setNs(e.target.value)} className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
+            <input type="password" placeholder="Confirmar nova senha" value={cs} onChange={e => setCs(e.target.value)} className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
+            {ns.length > 0 && ns !== cs && <p className="text-red-400 text-xs text-center">As senhas nao coincidem</p>}
+            {rm !== '' && <p className={rm.includes('sucesso') ? 'text-green-400 text-sm text-center' : 'text-red-400 text-sm text-center'}>{rm}</p>}
+            <button disabled={!okBtn} className={okBtn ? 'w-full py-4 rounded-2xl font-bold text-lg bg-brand text-white shadow-lg' : 'w-full py-4 rounded-2xl font-bold text-lg bg-gray-600 text-gray-400'}
               onClick={async () => {
-                _setResetLoading(true);
-                _setResetMsg('');
+                setRl(true); setRm('');
                 try {
-                  const { error: sErr } = await supabase.auth.setSession({ access_token: _recoveryToken, refresh_token: _recoveryToken });
-                  if (sErr) { _setResetMsg('Link invalido ou expirado. Solicite um novo reset.'); _setResetLoading(false); return; }
-                  const { error: uErr } = await supabase.auth.updateUser({ password: _novaSenha });
-                  if (uErr) { _setResetMsg('Erro: ' + uErr.message); }
-                  else { _setResetMsg('Senha alterada com sucesso! Redirecionando...'); setTimeout(() => { window.location.hash = ''; setView('auth'); }, 2000); }
-                } catch(e) { _setResetMsg('Erro inesperado. Tente novamente.'); }
-                _setResetLoading(false);
-              }}
-              className={_resetLoading || _novaSenha.length < 6 || _novaSenha !== _confirmaSenha ? 'w-full py-4 rounded-2xl font-bold text-white text-lg bg-slate-700 text-slate-500' : 'w-full py-4 rounded-2xl font-bold text-white text-lg bg-brand shadow-lg active:scale-95'}>
-              {_resetLoading ? 'Salvando...' : 'Salvar Nova Senha'}
+                  const { error: e1 } = await supabase.auth.setSession({ access_token: _token, refresh_token: _token });
+                  if (e1) { setRm('Link invalido ou expirado. Solicite novo reset.'); setRl(false); return; }
+                  const { error: e2 } = await supabase.auth.updateUser({ password: ns });
+                  if (e2) { setRm('Erro: ' + e2.message); }
+                  else { setRm('Senha alterada com sucesso!'); setTimeout(function(){ window.location.hash = ''; setView('auth'); }, 2000); }
+                } catch(ex) { setRm('Erro inesperado.'); }
+                setRl(false);
+              }}>
+              {rl ? 'Salvando...' : 'Salvar Nova Senha'}
             </button>
           </div>
         </div>

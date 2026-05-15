@@ -120,8 +120,9 @@ function App() {
   const params = new URLSearchParams(window.location.search);
   const slugQR = params.get('loja');
   const _hp = new URLSearchParams(window.location.hash.substring(1));
-  const _tok = _hp.get('access_token') || '';
-  const _rec = _hp.get('type') === 'recovery' && _tok.length > 10;
+  const _tok = _hp.get('access_token') || _hp.get('token') || '';
+  const _tokHash = _hp.get('token_hash') || '';
+  const _rec = _hp.get('type') === 'recovery' && (_tok.length > 5 || _tokHash.length > 5);
 
   // Estados principais
   const [authUser, setAuthUser] = useState(null);   // Usuário Supabase Auth (dono)
@@ -697,9 +698,20 @@ function App() {
     var mCls = rMsg.indexOf('sucesso') >= 0 ? 'text-green-400 text-sm text-center py-1' : 'text-red-400 text-sm text-center py-1';
     var doReset = async function() {
       setRLd(true); setRMsg('');
-      var u = await supabase.auth.updateUser({ password: rNs });
-      if (u.error) { setRMsg('Erro ao salvar senha.'); }
-      else { setRMsg('Senha alterada com sucesso!'); setTimeout(function(){ window.location.hash = ''; setView('auth'); }, 2000); }
+      try {
+        var err = null;
+        if (_tokHash.length > 5) {
+          var v = await supabase.auth.verifyOtp({ token_hash: _tokHash, type: 'recovery' });
+          if (v.error) { err = v.error; }
+        } else if (_tok.length > 5) {
+          var s = await supabase.auth.setSession({ access_token: _tok, refresh_token: _tok });
+          if (s.error) { err = s.error; }
+        }
+        if (err) { setRMsg('Link invalido ou expirado. Solicite um novo.'); setRLd(false); return; }
+        var u = await supabase.auth.updateUser({ password: rNs });
+        if (u.error) { setRMsg('Erro ao salvar senha.'); }
+        else { setRMsg('Senha alterada com sucesso!'); setTimeout(function(){ window.location.hash = ''; setView('auth'); }, 2000); }
+      } catch(ex) { setRMsg('Erro inesperado.'); }
       setRLd(false);
     };
     return (

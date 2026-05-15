@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Redefinir Senha — PerdaZero</title>
+  <style>
+    body { margin: 0; background: #0f172a; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: Arial, sans-serif; }
+    .box { text-align: center; color: white; }
+    .logo { width: 56px; height: 56px; background: #00A86B; border-radius: 14px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 28px; }
+    p { color: #94a3b8; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="logo">🛡️</div>
+    <h2>PerdaZero</h2>
+    <p>Redirecionando para redefinição de senha...</p>
+  </div>
+  <script>
+    // Pega o token_hash da URL atual
+    var hash = window.location.hash.substring(1);
+    var params = new URLSearchParams(hash);
+    var tokenHash = params.get('token_hash') || '';
+    var type = params.get('type') || '';
+
+    if (tokenHash && type === 'recovery') {
+      // Redireciona para o app principal com o token como query string
+      window.location.href = 'https://infinitylabs83.github.io/perdazero/?token_hash=' + tokenHash + '&type=recovery';
+    } else {
+      window.location.href = 'https://infinitylabs83.github.io/perdazero/';
+    }
+  </script>
+</body>
+</html>

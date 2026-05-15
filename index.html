@@ -258,8 +258,12 @@ function App() {
         setView('rec');
         return;
       }
-      if (session?.user) carregarPerfil(session.user);
-      else { setAuthUser(null); setPerfil(null); setConta(null); setView('auth'); }
+      if (session?.user) {
+        carregarPerfil(session.user);
+        return;
+      }
+      if (_gRec) return;
+      setAuthUser(null); setPerfil(null); setConta(null); setView('auth');
     });
 
     return () => subscription.unsubscribe();

@@ -115,20 +115,21 @@ const Ico = {
 // ==========================================
 // CONTEXTO DE AUTENTICAÇÃO
 // ==========================================
+// Detecção global de recovery (fora do React, executado imediatamente)
+var _ghp = new URLSearchParams(window.location.hash.substring(1));
+var _gTokHash = _ghp.get('token_hash') || '';
+var _gTok = _ghp.get('access_token') || '';
+var _gRec = _ghp.get('type') === 'recovery' && (_gTokHash.length > 5 || _gTok.length > 5);
+
 function App() {
   // Detecta se veio por QR Code: ?loja=slug_aqui
   const params = new URLSearchParams(window.location.search);
   const slugQR = params.get('loja');
-  const _hp = new URLSearchParams(window.location.hash.substring(1));
-  const _tok = _hp.get('access_token') || _hp.get('token') || '';
-  const _tokHash = _hp.get('token_hash') || '';
-  const _rec = _hp.get('type') === 'recovery' && (_tok.length > 5 || _tokHash.length > 5);
-
   // Estados principais
   const [authUser, setAuthUser] = useState(null);   // Usuário Supabase Auth (dono)
   const [perfil, setPerfil] = useState(null);         // Perfil + conta do dono
   const [conta, setConta] = useState(null);            // Dados da conta/empresa
-  const [view, setView] = useState(_rec ? 'rec' : slugQR ? 'qr_loading' : 'auth');
+  const [view, setView] = useState(_gRec ? 'rec' : slugQR ? 'qr_loading' : 'auth');
 
   // Dados operacionais
   const [lojas, setLojas] = useState([]);
@@ -700,11 +701,11 @@ function App() {
       setRLd(true); setRMsg('');
       try {
         var err = null;
-        if (_tokHash.length > 5) {
-          var v = await supabase.auth.verifyOtp({ token_hash: _tokHash, type: 'recovery' });
+        if (_gTokHash.length > 5) {
+          var v = await supabase.auth.verifyOtp({ token_hash: _gTokHash, type: 'recovery' });
           if (v.error) { err = v.error; }
-        } else if (_tok.length > 5) {
-          var s = await supabase.auth.setSession({ access_token: _tok, refresh_token: _tok });
+        } else if (_gTok.length > 5) {
+          var s = await supabase.auth.setSession({ access_token: _gTok, refresh_token: _gTok });
           if (s.error) { err = s.error; }
         }
         if (err) { setRMsg('Link invalido ou expirado. Solicite um novo.'); setRLd(false); return; }

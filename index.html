@@ -50,6 +50,14 @@
 <body class="bg-gray-200 w-screen overflow-hidden flex justify-center" style="height:100vh;height:100dvh;">
 <div id="root" class="w-full h-full bg-white overflow-hidden flex flex-col relative"></div>
 
+<script>
+// Recovery detection - runs immediately before React
+var _gQS = new URLSearchParams(window.location.search);
+var _gHash = new URLSearchParams(window.location.hash.substring(1));
+var _gTokHash = _gQS.get('token_hash') || _gHash.get('token_hash') || '';
+var _gTok = _gQS.get('access_token') || _gHash.get('access_token') || '';
+var _gRec = (_gQS.get('type') === 'recovery' || _gHash.get('type') === 'recovery') && (_gTokHash.length > 5 || _gTok.length > 5);
+</script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 

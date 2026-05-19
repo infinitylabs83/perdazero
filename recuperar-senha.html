@@ -18,14 +18,14 @@
     <p>Redirecionando para redefinição de senha...</p>
   </div>
   <script>
-    // Pega o token_hash da URL atual
-    var hash = window.location.hash.substring(1);
-    var params = new URLSearchParams(hash);
-    var tokenHash = params.get('token_hash') || '';
-    var type = params.get('type') || '';
+    // Lê da query string (?token_hash=xxx) OU do hash (#token_hash=xxx)
+    var qsParams = new URLSearchParams(window.location.search);
+    var hashParams = new URLSearchParams(window.location.hash.substring(1));
+
+    var tokenHash = qsParams.get('token_hash') || hashParams.get('token_hash') || '';
+    var type = qsParams.get('type') || hashParams.get('type') || '';
 
     if (tokenHash && type === 'recovery') {
-      // Redireciona para o app principal com o token como query string
       window.location.href = 'https://infinitylabs83.github.io/perdazero/?token_hash=' + tokenHash + '&type=recovery';
     } else {
       window.location.href = 'https://infinitylabs83.github.io/perdazero/';

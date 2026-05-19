@@ -6,10 +6,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#00A86B">
-  <title>PerdaZero v7r</title>
+  <title>PerdaZero v8</title>
 
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -180,6 +180,22 @@ function App() {
   const [rCs, setRCs] = useState('');
   const [rLd, setRLd] = useState(false);
   const [rMsg, setRMsg] = useState('');
+
+  // Melhoria 3: Metas mensais
+  const [metaMensal, setMetaMensal] = useState(0);
+  const [editandoMeta, setEditandoMeta] = useState(false);
+  const [metaInput, setMetaInput] = useState('');
+
+  // Melhoria 6: Paginação do histórico
+  const [pagHistorico, setPagHistorico] = useState(50);
+
+  // Melhoria 7: Comentários em registros
+  const [comentarioAberto, setComentarioAberto] = useState(null);
+  const [textoComentario, setTextoComentario] = useState('');
+  const [salvandoComentario, setSalvandoComentario] = useState(false);
+
+  // Melhoria 10: Gamificação - aba de ranking
+  const [showRanking, setShowRanking] = useState(false);
   const [fotoModal, setFotoModal] = useState(null);
   const [copiedSlug, setCopiedSlug] = useState(null);
   const fileInputRef = useRef(null);
@@ -293,18 +309,19 @@ function App() {
       setConta(p.contas);
       setSettNome(p.contas?.nome_rede || '');
       setSettLogo(p.contas?.logo_rede || null);
+      setMetaMensal(p.contas?.meta_mensal || 0);
       await carregarDados(p.conta_id);
-      setView('dashboard'); // onboarding verificado via useEffect
+      setView('dashboard');
     }
   };
 
-  const carregarDados = async (conta_id) => {
+  const carregarDados = async (conta_id, limite = 50) => {
     if (!supabase) return;
     const [lojasRes, equipeRes, prodRes, histRes] = await Promise.all([
       supabase.from('lojas').select('*').eq('conta_id', conta_id).order('nome'),
       supabase.from('equipe').select('*').eq('conta_id', conta_id).order('nome'),
       supabase.from('produtos').select('*').eq('conta_id', conta_id).order('nome'),
-      supabase.from('historico').select('*').eq('conta_id', conta_id).order('timestamp', { ascending: false }),
+      supabase.from('historico').select('*').eq('conta_id', conta_id).order('timestamp', { ascending: false }).limit(limite),
     ]);
     if (lojasRes.data) setLojas(lojasRes.data);
     if (equipeRes.data) setEquipe(equipeRes.data);
@@ -312,9 +329,39 @@ function App() {
     if (histRes.data) setHistorico(histRes.data);
   };
 
+  const carregarMaisHistorico = async () => {
+    if (!supabase || !perfil) return;
+    const novoLimite = pagHistorico + 50;
+    setPagHistorico(novoLimite);
+    const { data } = await supabase.from('historico').select('*').eq('conta_id', perfil.conta_id).order('timestamp', { ascending: false }).limit(novoLimite);
+    if (data) setHistorico(data);
+  };
+
   const handleLogout = async () => {
     await supabase?.auth.signOut();
     setView('auth');
+  };
+
+  const salvarMeta = async () => {
+    const valor = parseFloat(metaInput.replace(',','.')) || 0;
+    if (supabase && conta) {
+      await supabase.from('contas').update({ meta_mensal: valor }).eq('id', conta.id);
+    }
+    setMetaMensal(valor);
+    setConta({...conta, meta_mensal: valor});
+    setEditandoMeta(false);
+  };
+
+  const salvarComentario = async (itemId) => {
+    if (!textoComentario.trim()) return;
+    setSalvandoComentario(true);
+    if (supabase) {
+      await supabase.from('historico').update({ comentario_gestor: textoComentario.trim() }).eq('id', itemId);
+    }
+    setHistorico(historico.map(h => h.id === itemId ? {...h, comentario_gestor: textoComentario.trim()} : h));
+    setComentarioAberto(null);
+    setTextoComentario('');
+    setSalvandoComentario(false);
   };
 
   // ==========================================
@@ -1357,29 +1404,130 @@ function App() {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 hide-scrollbar min-h-0">
 
+          {/* MELHORIA 8: Bloqueio por plano */}
+          {conta?.plano === 'basico' && lojas.length >= 1 && (
+            <div className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-4 flex items-start gap-3">
+              <span className="text-2xl shrink-0">🔒</span>
+              <div className="flex-1">
+                <p className="font-bold text-amber-800 text-sm">Limite do plano Básico atingido</p>
+                <p className="text-amber-600 text-xs mt-1">O plano Básico permite apenas 1 unidade. Faça upgrade para o Padrão (até 3 unidades) ou Completo (ilimitado).</p>
+                <button onClick={() => window.open(LANDING_URL,'_blank')} className="mt-2 bg-amber-500 text-white text-xs font-bold px-4 py-2 rounded-xl">Ver Planos →</button>
+              </div>
+            </div>
+          )}
+
           {/* Aviso produtos sem custo */}
           {produtos.filter(p => !p.custo || p.custo === 0).length > 0 && (
             <button onClick={() => setView('mgr_produtos')} className="w-full bg-orange-50 border-2 border-orange-300 rounded-2xl p-3 flex items-center gap-3 text-left active:scale-95">
               <span className="text-2xl shrink-0">⚠️</span>
               <div>
                 <p className="font-bold text-orange-700 text-sm">{produtos.filter(p => !p.custo || p.custo === 0).length} produto(s) sem custo cadastrado</p>
-                <p className="text-orange-500 text-xs">Seus relatorios estao incompletos — toque para corrigir</p>
+                <p className="text-orange-500 text-xs">Seus relatórios estão incompletos — toque para corrigir</p>
               </div>
             </button>
           )}
 
+          {/* MELHORIA 3: Meta mensal */}
+          {(() => {
+            const hoje = new Date();
+            const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`;
+            const totalMes = historico.filter(item => {
+              const d = new Date(item.timestamp);
+              const m = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+              return m === mesAtual;
+            }).reduce((acc, c) => acc + (c.custo_total || 0), 0);
+            const pctMeta = metaMensal > 0 ? Math.min(100, Math.round(totalMes / metaMensal * 100)) : 0;
+            const corBarra = pctMeta >= 90 ? '#ef4444' : pctMeta >= 70 ? '#f59e0b' : '#00A86B';
+            return (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+                <div className="flex justify-between items-center mb-3">
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Meta do Mês</p>
+                    {metaMensal > 0
+                      ? <p className="text-sm font-bold text-slate-700">{fmt(totalMes)} <span className="text-slate-400 font-normal">de {fmt(metaMensal)}</span></p>
+                      : <p className="text-xs text-slate-400">Nenhuma meta definida</p>
+                    }
+                  </div>
+                  {editandoMeta ? (
+                    <div className="flex gap-2 items-center">
+                      <input type="number" placeholder="Ex: 800" value={metaInput} onChange={e => setMetaInput(e.target.value)}
+                        className="w-24 bg-gray-50 border border-gray-200 rounded-xl p-2 text-sm font-bold text-slate-800 focus:border-brand focus:outline-none" autoFocus/>
+                      <button onClick={salvarMeta} className="bg-brand text-white text-xs font-bold px-3 py-2 rounded-xl">OK</button>
+                      <button onClick={() => setEditandoMeta(false)} className="text-slate-400 text-xs px-2 py-2">✕</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setMetaInput(metaMensal > 0 ? String(metaMensal) : ''); setEditandoMeta(true); }}
+                      className="text-brand text-xs font-bold bg-green-50 px-3 py-2 rounded-xl">
+                      {metaMensal > 0 ? 'Editar' : '+ Definir meta'}
+                    </button>
+                  )}
+                </div>
+                {metaMensal > 0 && (
+                  <>
+                    <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-500" style={{width: pctMeta+'%', background: corBarra}}></div>
+                    </div>
+                    <div className="flex justify-between mt-1">
+                      <p className="text-[10px] text-slate-400">{pctMeta}% utilizado</p>
+                      <p className="text-[10px] font-bold" style={{color: corBarra}}>
+                        {pctMeta >= 100 ? '🚨 Meta estourada!' : pctMeta >= 90 ? '⚠️ Atenção!' : pctMeta >= 70 ? '🟡 Monitorar' : '✅ No controle'}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* KPIs */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-l-red-500">
               <p className="text-slate-400 text-[10px] font-bold tracking-wider uppercase mb-1">Itens Perdidos</p>
               <p className="text-2xl font-black text-slate-800">{dadosDash.length}</p>
             </div>
             <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-l-brand">
-              <p className="text-slate-400 text-[10px] font-bold tracking-wider uppercase mb-1">Prejuizo</p>
+              <p className="text-slate-400 text-[10px] font-bold tracking-wider uppercase mb-1">Prejuízo</p>
               <p className="text-2xl font-black text-slate-800">{fmt(totalPrej).replace('R$','').trim()}</p>
             </div>
           </div>
 
-          {/* Insights ROI */}
+          {/* MELHORIA 5: Comparativo semana vs semana */}
+          {(() => {
+            const agora = new Date();
+            const inicioSemanaAtual = new Date(agora); inicioSemanaAtual.setDate(agora.getDate() - 7);
+            const inicioSemanaAnterior = new Date(agora); inicioSemanaAnterior.setDate(agora.getDate() - 14);
+            const semanaAtual = historico.filter(i => new Date(i.timestamp) >= inicioSemanaAtual).reduce((a,c) => a+(c.custo_total||0),0);
+            const semanaAnterior = historico.filter(i => new Date(i.timestamp) >= inicioSemanaAnterior && new Date(i.timestamp) < inicioSemanaAtual).reduce((a,c) => a+(c.custo_total||0),0);
+            if (semanaAnterior === 0 && semanaAtual === 0) return null;
+            const diff = semanaAnterior > 0 ? Math.round((semanaAtual - semanaAnterior) / semanaAnterior * 100) : null;
+            const melhorou = diff !== null && diff < 0;
+            const piorou = diff !== null && diff > 0;
+            return (
+              <div className="bg-slate-900 rounded-2xl p-4 border border-slate-700">
+                <p className="text-brand text-[10px] font-bold tracking-widest uppercase mb-3">Comparativo Semanal</p>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="bg-slate-800 rounded-xl p-3">
+                    <p className="text-slate-400 text-[10px] uppercase tracking-wider mb-1">Esta semana</p>
+                    <p className="text-white text-lg font-black">{fmt(semanaAtual)}</p>
+                  </div>
+                  <div className="bg-slate-800 rounded-xl p-3">
+                    <p className="text-slate-400 text-[10px] uppercase tracking-wider mb-1">Semana passada</p>
+                    <p className="text-white text-lg font-black">{fmt(semanaAnterior)}</p>
+                  </div>
+                </div>
+                {diff !== null && (
+                  <div className={`flex items-center gap-2 p-2 rounded-xl ${melhorou ? 'bg-green-900/40' : piorou ? 'bg-red-900/40' : 'bg-slate-800'}`}>
+                    <span className="text-xl">{melhorou ? '📉' : piorou ? '📈' : '➡️'}</span>
+                    <p className={`text-sm font-bold ${melhorou ? 'text-green-400' : piorou ? 'text-red-400' : 'text-slate-400'}`}>
+                      {melhorou ? `Você melhorou ${Math.abs(diff)}% em relação à semana passada!` : piorou ? `Aumento de ${diff}% em relação à semana passada` : 'Mesma média da semana passada'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Insights */}
           {dadosDash.length > 0 && (() => {
             const porLoja = {}; dadosDash.forEach(i => { const n = lojas.find(l=>l.id===i.loja_id)?.nome||'?'; porLoja[n]=(porLoja[n]||0)+(i.custo_total||0); });
             const topLoja = Object.entries(porLoja).sort((a,b)=>b[1]-a[1])[0];
@@ -1390,12 +1538,63 @@ function App() {
             const topProd = Object.entries(porProd).sort((a,b)=>b[1]-a[1])[0];
             return (
               <div className="bg-slate-900 rounded-2xl p-4 border border-slate-700">
-                <p className="text-brand text-[10px] font-bold tracking-widest uppercase mb-3">Insights do Periodo</p>
+                <p className="text-brand text-[10px] font-bold tracking-widest uppercase mb-3">Insights do Período</p>
                 <div className="space-y-3">
                   {topLoja && <div className="flex justify-between items-center"><span className="text-slate-400 text-xs">Loja com mais perda</span><div className="text-right"><span className="text-white text-xs font-bold block">{topLoja[0]}</span><span className="text-red-400 text-[10px] font-bold">{fmt(topLoja[1])}</span></div></div>}
-                  {topMotivo && totalPrej > 0 && <div className="flex justify-between items-center"><span className="text-slate-400 text-xs">Principal motivo</span><div className="text-right"><span className="text-white text-xs font-bold block">{topMotivo[0]}</span><span className="text-yellow-400 text-[10px] font-bold">{pct}% do prejuizo</span></div></div>}
+                  {topMotivo && totalPrej > 0 && <div className="flex justify-between items-center"><span className="text-slate-400 text-xs">Principal motivo</span><div className="text-right"><span className="text-white text-xs font-bold block">{topMotivo[0]}</span><span className="text-yellow-400 text-[10px] font-bold">{pct}% do prejuízo</span></div></div>}
                   {topProd && <div className="flex justify-between items-center"><span className="text-slate-400 text-xs">Produto mais descartado</span><div className="text-right"><span className="text-white text-xs font-bold block">{topProd[0]}</span><span className="text-brand text-[10px] font-bold">{topProd[1].toFixed(1)} un</span></div></div>}
                 </div>
+              </div>
+            );
+          })()}
+
+          {/* MELHORIA 10: Gamificação - Ranking da equipe */}
+          {(() => {
+            const hoje = new Date();
+            const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+            const registrosMes = historico.filter(i => new Date(i.timestamp) >= inicioMes);
+            if (registrosMes.length === 0) return null;
+            const porFunc = {};
+            registrosMes.forEach(i => {
+              if (!i.responsavel || i.responsavel === 'Nao identificado') return;
+              if (!porFunc[i.responsavel]) porFunc[i.responsavel] = { total: 0, registros: 0 };
+              porFunc[i.responsavel].total += (i.custo_total || 0);
+              porFunc[i.responsavel].registros += 1;
+            });
+            const ranking = Object.entries(porFunc).sort((a,b) => b[1].total - a[1].total).slice(0,5);
+            if (ranking.length === 0) return null;
+            const maxVal = ranking[0][1].total;
+            const medalhas = ['🥇','🥈','🥉','4°','5°'];
+            return (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ranking da Equipe</h3>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Prejuízo acumulado no mês atual</p>
+                  </div>
+                  <button onClick={() => setShowRanking(!showRanking)} className="text-brand text-xs font-bold bg-green-50 px-3 py-1.5 rounded-xl">
+                    {showRanking ? 'Ocultar' : 'Ver ranking'}
+                  </button>
+                </div>
+                {showRanking && (
+                  <div className="p-4 space-y-3">
+                    {ranking.map(([nome, dados], i) => (
+                      <div key={nome}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-sm font-bold text-slate-800">{medalhas[i]} {nome.split(' ')[0]}</span>
+                          <div className="text-right">
+                            <span className="text-xs font-bold text-red-500">{fmt(dados.total)}</span>
+                            <span className="text-[10px] text-slate-400 ml-1">({dados.registros} reg)</span>
+                          </div>
+                        </div>
+                        <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-red-400 rounded-full" style={{width: maxVal > 0 ? (dados.total/maxVal*100)+'%' : '0%'}}></div>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="text-[10px] text-slate-400 text-center mt-2 pt-2 border-t border-gray-100">Use este ranking para identificar onde investir em treinamento</p>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -1435,14 +1634,17 @@ function App() {
             <div className="chart-container"><canvas ref={chartBarRef}></canvas></div>
           </div>
 
+          {/* MELHORIA 6 + 7: Auditoria com paginação e comentários */}
           <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-            <div className="p-4 border-b bg-gray-50">
+            <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Auditoria Completa</h3>
+              <span className="text-[10px] text-slate-400">{dadosDash.length} registros</span>
             </div>
             <div className="divide-y divide-gray-50">
               {dadosDash.length===0 ? <p className="p-6 text-center text-slate-400 font-medium">Nenhum registro no período.</p> :
                dadosDash.map(item => {
                 const lojaItem = lojas.find(l => l.id === item.loja_id)?.nome || '—';
+                const estaComentando = comentarioAberto === item.id;
                 return (
                   <div key={item.id} className="p-4 flex gap-3">
                     {item.foto_url && (
@@ -1461,6 +1663,35 @@ function App() {
                         <p className="text-xs text-slate-500 font-bold">Resp: <span className="text-slate-800">{item.responsavel}</span></p>
                         <p className="text-xs text-slate-500 mt-0.5">Por {item.relator} • {fmtDataHora(item.timestamp)} • {lojaItem}</p>
                         {item.observacao && <p className="text-xs text-yellow-800 italic bg-yellow-50 border border-yellow-200 p-2 rounded mt-2">"{item.observacao}"</p>}
+
+                        {/* MELHORIA 7: Comentário do gestor */}
+                        {item.comentario_gestor && !estaComentando && (
+                          <div className="mt-2 bg-blue-50 border border-blue-200 p-2 rounded flex justify-between items-start gap-2">
+                            <p className="text-xs text-blue-800">💬 <span className="font-bold">Gestor:</span> {item.comentario_gestor}</p>
+                            <button onClick={() => { setComentarioAberto(item.id); setTextoComentario(item.comentario_gestor); }} className="text-blue-400 text-[10px] shrink-0">editar</button>
+                          </div>
+                        )}
+                        {estaComentando ? (
+                          <div className="mt-2 space-y-2">
+                            <textarea value={textoComentario} onChange={e => setTextoComentario(e.target.value)}
+                              placeholder="Adicione uma observação como gestor..."
+                              className="w-full bg-white border border-blue-300 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 resize-none" rows={3} autoFocus/>
+                            <div className="flex gap-2">
+                              <button onClick={() => salvarComentario(item.id)} disabled={salvandoComentario}
+                                className="bg-brand text-white text-xs font-bold px-3 py-1.5 rounded-lg">{salvandoComentario ? '...' : 'Salvar'}</button>
+                              <button onClick={() => { setComentarioAberto(null); setTextoComentario(''); }}
+                                className="bg-gray-100 text-slate-500 text-xs font-bold px-3 py-1.5 rounded-lg">Cancelar</button>
+                            </div>
+                          </div>
+                        ) : (
+                          !item.comentario_gestor && (
+                            <button onClick={() => { setComentarioAberto(item.id); setTextoComentario(''); }}
+                              className="mt-2 text-slate-400 text-[10px] font-bold flex items-center gap-1 hover:text-brand">
+                              💬 Adicionar comentário do gestor
+                            </button>
+                          )
+                        )}
+
                         <button onClick={() => handleDelete(item.id)} className="absolute top-2 right-2 text-red-400 bg-white p-1.5 rounded-md shadow-sm border border-gray-100 active:scale-95">
                           <Ico.Delete size={14}/>
                         </button>
@@ -1470,6 +1701,15 @@ function App() {
                 );
               })}
             </div>
+            {/* MELHORIA 6: Botão carregar mais */}
+            {historico.length >= pagHistorico && (
+              <div className="p-4 border-t bg-gray-50 text-center">
+                <button onClick={carregarMaisHistorico} className="text-brand text-sm font-bold bg-green-50 px-6 py-2.5 rounded-xl active:scale-95 transition-transform">
+                  Carregar mais registros
+                </button>
+                <p className="text-[10px] text-slate-400 mt-1">Exibindo os {pagHistorico} mais recentes</p>
+              </div>
+            )}
           </div>
         </div>
         <BottomNav/>
@@ -1944,6 +2184,32 @@ function App() {
             <p className="text-sm text-slate-600 mb-1"><span className="font-bold text-slate-800">Plano:</span> {conta?.plano}</p>
             {conta?.plano === 'trial' && <p className="text-sm text-slate-600"><span className="font-bold text-slate-800">Trial expira em:</span> {diasRestantesTrial(conta.trial_expira_em)} dias</p>}
             <button onClick={handleLogout} className="w-full mt-4 bg-red-50 text-red-500 font-bold p-3 rounded-xl border border-red-100">Sair da Conta</button>
+          </div>
+
+          {/* MELHORIA 8: Planos */}
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+            <h3 className="text-xs font-bold text-slate-500 mb-4 uppercase tracking-wider">Planos Disponíveis</h3>
+            <div className="space-y-3">
+              {[
+                { nome: 'Básico', preco: 'R$ 49/mês', lojas: '1 unidade', cor: 'border-gray-200', badge: '' },
+                { nome: 'Padrão', preco: 'R$ 89/mês', lojas: 'até 3 unidades', cor: 'border-brand', badge: 'Mais popular' },
+                { nome: 'Completo', preco: 'R$ 149/mês', lojas: 'Unidades ilimitadas', cor: 'border-slate-700', badge: '' },
+              ].map(plano => (
+                <div key={plano.nome} className={`border-2 ${plano.cor} rounded-xl p-4 flex justify-between items-center`}>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-slate-800 text-sm">{plano.nome}</p>
+                      {plano.badge && <span className="text-[9px] font-bold bg-brand text-white px-2 py-0.5 rounded-full">{plano.badge}</span>}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">{plano.lojas}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-black text-slate-800 text-sm">{plano.preco}</p>
+                    <button onClick={() => window.open(LANDING_URL,'_blank')} className="text-brand text-[10px] font-bold mt-1">Assinar →</button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
         <BottomNav/>

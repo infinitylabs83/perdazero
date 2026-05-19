@@ -2,34 +2,170 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <title>Redefinir Senha — PerdaZero</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    body { margin: 0; background: #0f172a; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: Arial, sans-serif; }
-    .box { text-align: center; color: white; }
-    .logo { width: 56px; height: 56px; background: #00A86B; border-radius: 14px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 28px; }
-    p { color: #94a3b8; font-size: 14px; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: Arial, sans-serif;
+      padding: 24px;
+    }
+    .card {
+      width: 100%;
+      max-width: 380px;
+      text-align: center;
+    }
+    .logo {
+      width: 64px; height: 64px;
+      background: #00A86B;
+      border-radius: 18px;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 16px;
+      font-size: 32px;
+      box-shadow: 0 8px 32px rgba(0,168,107,0.3);
+    }
+    h1 { color: white; font-size: 26px; font-weight: 900; margin-bottom: 6px; }
+    .sub { color: #64748b; font-size: 14px; margin-bottom: 32px; }
+    input {
+      width: 100%;
+      background: #1e293b;
+      border: 1.5px solid #334155;
+      color: white;
+      padding: 16px;
+      border-radius: 14px;
+      font-size: 15px;
+      margin-bottom: 12px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: #00A86B; }
+    button {
+      width: 100%;
+      background: #00A86B;
+      color: white;
+      border: none;
+      padding: 16px;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 4px;
+      transition: opacity 0.2s;
+    }
+    button:disabled { background: #1e293b; color: #475569; cursor: not-allowed; }
+    .msg { margin-top: 16px; font-size: 14px; padding: 12px; border-radius: 10px; }
+    .msg.ok { background: #052e16; color: #4ade80; }
+    .msg.err { background: #2d0a0a; color: #f87171; }
+    .loading-screen {
+      text-align: center;
+      color: #64748b;
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid #1e293b;
+      border-top-color: #00A86B;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
-  <div class="box">
-    <div class="logo">🛡️</div>
-    <h2>PerdaZero</h2>
-    <p>Redirecionando para redefinição de senha...</p>
+  <div class="card" id="app">
+    <div class="loading-screen">
+      <div class="spinner"></div>
+      <p>Verificando link...</p>
+    </div>
   </div>
+
   <script>
-    // Lê da query string (?token_hash=xxx) OU do hash (#token_hash=xxx)
-    var qsParams = new URLSearchParams(window.location.search);
-    var hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const SUPABASE_URL = 'https://zggpewiirthwrphhdokp.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpnZ3Bld2lpcnRod3JwaGhkb2twIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyODg0ODksImV4cCI6MjA5MTg2NDQ4OX0.zVMMGDmJe_MbUxLR2rSqTljwnBRkzPJ7tbYmIfOHMFY';
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    var tokenHash = qsParams.get('token_hash') || hashParams.get('token_hash') || '';
-    var type = qsParams.get('type') || hashParams.get('type') || '';
+    // Lê token de TODOS os lugares possíveis
+    var qs = new URLSearchParams(window.location.search);
+    var hsh = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    var tokenHash = qs.get('token_hash') || hsh.get('token_hash') || '';
+    var type = qs.get('type') || hsh.get('type') || 'recovery';
 
-    if (tokenHash && type === 'recovery') {
-      window.location.href = 'https://infinitylabs83.github.io/perdazero/?token_hash=' + tokenHash + '&type=recovery';
-    } else {
-      window.location.href = 'https://infinitylabs83.github.io/perdazero/';
+    function mostrarFormulario() {
+      document.getElementById('app').innerHTML = `
+        <div class="logo">🛡️</div>
+        <h1>PerdaZero</h1>
+        <p class="sub">Digite sua nova senha abaixo</p>
+        <input type="password" id="s1" placeholder="Nova senha (mín. 6 caracteres)" />
+        <input type="password" id="s2" placeholder="Confirmar nova senha" />
+        <button id="btn" onclick="salvar()">Salvar Nova Senha</button>
+        <div id="msg"></div>
+      `;
     }
+
+    function mostrarErro(texto) {
+      document.getElementById('app').innerHTML = `
+        <div class="logo">🛡️</div>
+        <h1>PerdaZero</h1>
+        <p class="sub" style="color:#f87171;margin-bottom:24px">${texto}</p>
+        <button onclick="window.location.href='https://infinitylabs83.github.io/perdazero/'">
+          Voltar ao Login
+        </button>
+      `;
+    }
+
+    async function salvar() {
+      var s1 = document.getElementById('s1').value;
+      var s2 = document.getElementById('s2').value;
+      var btn = document.getElementById('btn');
+      var msg = document.getElementById('msg');
+
+      if (s1.length < 6) {
+        msg.className = 'msg err'; msg.textContent = 'Senha precisa ter pelo menos 6 caracteres.'; return;
+      }
+      if (s1 !== s2) {
+        msg.className = 'msg err'; msg.textContent = 'As senhas não coincidem.'; return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Salvando...';
+      msg.textContent = '';
+
+      var { error } = await sb.auth.updateUser({ password: s1 });
+      if (error) {
+        msg.className = 'msg err';
+        msg.textContent = 'Erro ao salvar: ' + error.message;
+        btn.disabled = false;
+        btn.textContent = 'Salvar Nova Senha';
+      } else {
+        msg.className = 'msg ok';
+        msg.textContent = '✅ Senha alterada com sucesso! Redirecionando...';
+        setTimeout(function() {
+          window.location.href = 'https://infinitylabs83.github.io/perdazero/';
+        }, 2000);
+      }
+    }
+
+    // Inicializa: verifica o token e já mostra o formulário
+    async function init() {
+      if (!tokenHash) {
+        mostrarErro('Link inválido ou expirado.<br>Solicite um novo e-mail de recuperação.');
+        return;
+      }
+      var { error } = await sb.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' });
+      if (error) {
+        mostrarErro('Link inválido ou expirado.<br>Solicite um novo e-mail de recuperação.');
+      } else {
+        mostrarFormulario();
+      }
+    }
+
+    init();
   </script>
 </body>
 </html>

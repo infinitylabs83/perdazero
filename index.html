@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#00A86B">
-  <title>PerdaZero v8</title>
+  <title>PerdaZero v9</title>
 
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -196,6 +196,11 @@ function App() {
 
   // Melhoria 10: Gamificação - aba de ranking
   const [showRanking, setShowRanking] = useState(false);
+
+  // Obs 4/5: Fluxo "Outro" no registro
+  const [outroMode, setOutroMode] = useState(false);
+  const [outroDesc, setOutroDesc] = useState('');
+  const [outroUnidade, setOutroUnidade] = useState('un');
   const [fotoModal, setFotoModal] = useState(null);
   const [copiedSlug, setCopiedSlug] = useState(null);
   const fileInputRef = useRef(null);
@@ -382,6 +387,7 @@ function App() {
   const resetFlow = () => {
     setReg({ foto_arquivo:null, foto_url_local:null, produto:null, qtd:'', unidade:'un', motivo:null, observacao:'', custo_unitario:0, icone:'📦' });
     setCustomProd(''); setCustomEmoji('📦'); setBuscaProd(''); setQtdAlertaVisto(false);
+    setOutroMode(false); setOutroDesc(''); setOutroUnidade('un');
     setIsCustomMotivo(false); setCustomMotivo('');
     setShowColegasList(false); setSelectedColega(null); setObsColega('');
     setFlowStep(1);
@@ -1061,7 +1067,7 @@ function App() {
               )}
               <div className="grid grid-cols-2 gap-3 shrink-0 pb-4">
                 {produtos.filter(p => p.nome.toLowerCase().includes(buscaProd.toLowerCase())).map(p => (
-                  <button key={p.id} onClick={() => { setReg({...reg,produto:p.nome,custo_unitario:p.custo||0,icone:p.icone}); setBuscaProd(''); setFlowStep(3); }}
+                  <button key={p.id} onClick={() => { setReg({...reg,produto:p.nome,custo_unitario:p.custo||0,icone:p.icone,unidade:p.unidade||'un'}); setBuscaProd(''); setFlowStep(3); }}
                     className="bg-white border border-gray-200 p-4 rounded-2xl flex items-center shadow-sm active:border-brand active:bg-green-50 transition-colors">
                     <span className="text-3xl mr-3">{p.icone}</span>
                     <div className="flex-1 min-w-0">
@@ -1073,10 +1079,35 @@ function App() {
               </div>
             </div>
             <div className="p-4 pt-0 bg-gray-50 shrink-0 border-t border-gray-100">
-              <button onClick={() => { setReg({...reg,produto:'Outro (nao catalogado)',custo_unitario:0,icone:'📦'}); setBuscaProd(''); setFlowStep(3); }}
-                className="w-full py-3 rounded-2xl font-bold text-slate-500 text-sm bg-white border border-gray-200 shadow-sm active:bg-gray-100">
-                + Produto nao esta na lista? Registrar como Outro
-              </button>
+              {outroMode ? (
+                <div className="bg-white border-2 border-slate-300 rounded-2xl p-4 space-y-3">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Registrar item não catalogado</p>
+                  <input autoFocus type="text" placeholder="Descreva o item (ex: Molho especial)" value={outroDesc}
+                    onChange={e => setOutroDesc(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-slate-800 focus:border-brand focus:outline-none"/>
+                  <div className="flex bg-gray-100 p-1 rounded-xl">
+                    {[{v:'un',l:'Unidade'},{v:'kg',l:'Kg'},{v:'L',l:'Litro'}].map(u => (
+                      <button key={u.v} onClick={() => setOutroUnidade(u.v)}
+                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${outroUnidade===u.v?'bg-white shadow text-slate-800':'text-slate-500'}`}>{u.l}</button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setOutroMode(false); setOutroDesc(''); setOutroUnidade('un'); }}
+                      className="flex-1 py-3 rounded-xl font-bold text-slate-500 text-sm bg-gray-100">Cancelar</button>
+                    <button disabled={!outroDesc.trim()} onClick={() => {
+                      setReg({...reg, produto: outroDesc.trim(), custo_unitario: 0, icone: '📦', unidade: outroUnidade});
+                      setOutroMode(false); setOutroDesc(''); setBuscaProd(''); setFlowStep(3);
+                    }} className={`flex-1 py-3 rounded-xl font-bold text-sm ${outroDesc.trim()?'bg-brand text-white':'bg-gray-200 text-gray-400'}`}>
+                      Confirmar →
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setOutroMode(true)}
+                  className="w-full py-3 rounded-2xl font-bold text-slate-500 text-sm bg-white border border-gray-200 shadow-sm active:bg-gray-100">
+                  📦 Produto não está na lista? Registrar como "Outro"
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1911,7 +1942,7 @@ function App() {
 
     const saveProd = async (id) => {
       const custo = parseFloat((editProd.custo||'').toString().replace(',','.')) || 0;
-      const obj = { nome: editProd.nome, icone: editProd.icone || '📦', custo };
+      const obj = { nome: editProd.nome, icone: editProd.icone || '📦', custo, unidade: editProd.unidade || 'un' };
       if (supabase) { await supabase.from('produtos').update(obj).eq('id', id); }
       setProdutos(produtos.map(p => p.id===id?{...p,...obj}:p));
       setEditingProdId(null);
@@ -1960,7 +1991,14 @@ function App() {
               <div key={p.id} className="bg-white border-2 border-brand p-4 rounded-2xl flex flex-col shadow-lg">
                 <input value={editProd.icone} onChange={e => setEditProd({...editProd,icone:e.target.value})} maxLength="2" className="text-3xl bg-gray-50 p-2 rounded-xl mb-2 text-center border focus:outline-none"/>
                 <input value={editProd.nome} onChange={e => setEditProd({...editProd,nome:e.target.value})} className="font-bold text-slate-700 text-sm text-center mb-2 border-b focus:outline-none"/>
-                <input value={editProd.custo} onChange={e => setEditProd({...editProd,custo:e.target.value})} className="text-xs text-brand font-bold text-center border-b focus:outline-none mb-3" placeholder="Custo R$"/>
+                <div className="flex gap-1 mb-2">
+                  <input value={editProd.custo} onChange={e => setEditProd({...editProd,custo:e.target.value})} className="flex-1 text-xs text-brand font-bold text-center border-b focus:outline-none" placeholder="Custo R$"/>
+                  <select value={editProd.unidade||'un'} onChange={e => setEditProd({...editProd,unidade:e.target.value})} className="text-xs font-bold border-b focus:outline-none bg-transparent text-slate-600">
+                    <option value="un">un</option>
+                    <option value="kg">kg</option>
+                    <option value="L">L</option>
+                  </select>
+                </div>
                 <div className="flex justify-between mt-auto">
                   <button onClick={() => deleteProd(p.id)} className="bg-red-50 text-red-500 p-2 rounded-lg"><Ico.Delete/></button>
                   <button onClick={() => saveProd(p.id)} className="bg-brand text-white p-2 rounded-lg font-bold text-xs px-4">Salvar</button>
@@ -1968,7 +2006,7 @@ function App() {
               </div>
             ) : (
               <div key={p.id} className="bg-white border border-gray-100 p-4 pt-8 rounded-2xl flex flex-col items-center shadow-sm relative">
-                <button onClick={() => { setEditingProdId(p.id); setEditProd({nome:p.nome,icone:p.icone,custo:p.custo?.toString().replace('.',',')||''}); }} className="absolute top-2 right-2 text-slate-400 p-2 bg-gray-50 rounded-full shadow-sm hover:text-brand"><Ico.Edit/></button>
+                <button onClick={() => { setEditingProdId(p.id); setEditProd({nome:p.nome,icone:p.icone,custo:p.custo?.toString().replace('.',',')||'',unidade:p.unidade||'un'}); }} className="absolute top-2 right-2 text-slate-400 p-2 bg-gray-50 rounded-full shadow-sm hover:text-brand"><Ico.Edit/></button>
                 <span className="text-4xl bg-gray-50 p-3 rounded-2xl mb-2 shadow-inner">{p.icone}</span>
                 <span className="font-bold text-slate-700 text-sm text-center leading-tight mb-1">{p.nome}</span>
                 {p.custo > 0
@@ -2230,8 +2268,10 @@ function TelaAuth({ supabase }) {
   const [nome, setNome] = useState('');
   const [nomeRede, setNomeRede] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingReset, setLoadingReset] = useState(false);
   const [erro, setErro] = useState('');
   const [sucesso, setSucesso] = useState('');
+  const [mostrarSenha, setMostrarSenha] = useState(false);
 
   const handleLogin = async () => {
     if (!email || !senha) return;
@@ -2266,6 +2306,21 @@ function TelaAuth({ supabase }) {
     setLoading(false);
   };
 
+  const handleEsqueciSenha = async () => {
+    if (!email) { setErro('Digite seu e-mail acima primeiro.'); return; }
+    setLoadingReset(true); setErro(''); setSucesso('');
+    await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: 'https://infinitylabs83.github.io/perdazero/recuperar-senha.html'
+    });
+    setSucesso('✅ Link enviado! Verifique sua caixa de entrada (e o spam).');
+    setLoadingReset(false);
+  };
+
+  // Ícone de olho
+  const EyeIcon = ({ open }) => open
+    ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+    : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>;
+
   return (
     <div className="flex-1 flex flex-col p-6 bg-slate-900 justify-center items-center animate-fade-in overflow-y-auto hide-scrollbar">
       <div className="w-full max-w-sm">
@@ -2295,9 +2350,18 @@ function TelaAuth({ supabase }) {
           )}
           <input type="email" placeholder="seu@email.com" value={email} onChange={e => setEmail(e.target.value)}
             className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
-          <input type="password" placeholder="Senha (mín. 6 caracteres)" value={senha} onChange={e => setSenha(e.target.value)}
-            onKeyDown={e => e.key==='Enter' && (modo==='login'?handleLogin():handleCadastro())}
-            className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
+
+          {/* Campo senha com olho */}
+          <div className="relative">
+            <input type={mostrarSenha ? 'text' : 'password'} placeholder="Senha (mín. 6 caracteres)" value={senha}
+              onChange={e => setSenha(e.target.value)}
+              onKeyDown={e => e.key==='Enter' && (modo==='login'?handleLogin():handleCadastro())}
+              className="w-full bg-slate-800 border border-slate-700 text-white p-4 pr-14 rounded-2xl font-medium placeholder:text-slate-500 focus:border-brand focus:outline-none"/>
+            <button type="button" onClick={() => setMostrarSenha(!mostrarSenha)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors p-1">
+              <EyeIcon open={mostrarSenha}/>
+            </button>
+          </div>
 
           {erro && <p className="text-red-400 text-sm font-medium text-center py-1">{erro}</p>}
           {sucesso && <p className="text-green-400 text-sm font-medium text-center py-1">{sucesso}</p>}
@@ -2309,11 +2373,10 @@ function TelaAuth({ supabase }) {
           </button>
 
           {modo === 'login' && (
-            <button onClick={async () => {
-              if (!email) { setErro('Digite seu email primeiro.'); return; }
-              await supabase.auth.resetPasswordForEmail(email);
-              setSucesso('Link de redefinição enviado para seu email.');
-            }} className="w-full text-slate-500 text-sm font-medium py-2 text-center">Esqueci minha senha</button>
+            <button onClick={handleEsqueciSenha} disabled={loadingReset}
+              className={`w-full text-sm font-medium py-2 text-center transition-colors ${loadingReset ? 'text-brand' : 'text-slate-500'}`}>
+              {loadingReset ? '⏳ Enviando link...' : 'Esqueci minha senha'}
+            </button>
           )}
         </div>
 

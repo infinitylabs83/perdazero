@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#00A86B">
-  <title>PerdaZero v9</title>
+  <title>PerdaZero v10</title>
 
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -1809,49 +1809,108 @@ function App() {
       return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${url}`;
     };
 
-    const baixarQR = (slug, nome) => {
+    const baixarQR = async (slug, nome) => {
       const appUrl = APP_URL + '?loja=' + slug;
-      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=30&data=' + encodeURIComponent(appUrl);
-      const logo = settLogo || conta?.logo_rede;
+      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=20&data=' + encodeURIComponent(appUrl);
       const nomeRede = conta?.nome_rede || 'PerdaZero';
-      const logoHtml = logo ? '<img src="' + logo + '" class="logo-img" alt="Logo"/>' : '<div class="logo-ph">PZ</div>';
-      const pag = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>QR Code - ' + nome + '</title><style>' +
-        '*{box-sizing:border-box;margin:0;padding:0}' +
-        'body{font-family:Arial,Helvetica,sans-serif;background:#f1f5f9;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px}' +
-        '@media print{body{background:#fff;padding:0;min-height:unset}@page{margin:10mm}}' +
-        '.card{background:#fff;border-radius:24px;padding:32px 28px;text-align:center;width:320px;box-shadow:0 8px 32px rgba(0,0,0,0.12)}' +
-        '.top-bar{width:60px;height:4px;background:#00A86B;border-radius:2px;margin:0 auto 24px}' +
-        '.logo-img{width:72px;height:72px;border-radius:50%;object-fit:cover;margin:0 auto 12px;display:block;border:3px solid #00A86B}' +
-        '.logo-ph{width:72px;height:72px;border-radius:50%;background:#00A86B;color:#fff;font-size:18px;font-weight:900;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;letter-spacing:1px}' +
-        '.rede{font-size:10px;color:#00A86B;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px}' +
-        '.loja{font-size:18px;font-weight:900;color:#0f172a;margin-bottom:20px;line-height:1.2}' +
-        '.qr-wrap{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:12px;display:inline-block;margin-bottom:20px}' +
-        '.qr{width:200px;height:200px;display:block}' +
-        '.divider{width:100%;height:1px;background:#f1f5f9;margin:16px 0}' +
-        '.inst-title{font-size:11px;font-weight:700;color:#374151;margin-bottom:8px}' +
-        '.inst-steps{text-align:left;padding:0 8px}' +
-        '.inst-step{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;font-size:11px;color:#6b7280}' +
-        '.step-num{background:#00A86B;color:#fff;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;margin-top:1px}' +
-        '.footer{margin-top:16px;font-size:9px;color:#94a3b8;font-weight:500}' +
-        '</style></head><body>' +
-        '<div class="card">' +
-        '<div class="top-bar"></div>' +
-        logoHtml +
-        '<div class="rede">' + nomeRede + '</div>' +
-        '<div class="loja">' + nome + '</div>' +
-        '<div class="qr-wrap"><img src="' + qrUrl + '" class="qr" alt="QR Code" crossorigin="anonymous"/></div>' +
-        '<div class="divider"></div>' +
-        '<div class="inst-title">Como registrar uma perda:</div>' +
-        '<div class="inst-steps">' +
-        '<div class="inst-step"><div class="step-num">1</div><span>Aponte a camera do celular para o QR Code acima</span></div>' +
-        '<div class="inst-step"><div class="step-num">2</div><span>Selecione seu nome na lista</span></div>' +
-        '<div class="inst-step"><div class="step-num">3</div><span>Siga os passos e registre a perda em menos de 1 minuto</span></div>' +
-        '</div>' +
-        '<div class="footer">PerdaZero &middot; perdazero.com.br</div>' +
-        '</div>' +
-        '</body></html>';
-      const w = window.open('', '_blank');
-      if (w) { w.document.write(pag); w.document.close(); setTimeout(() => w.print(), 1000); }
+
+      // Cria canvas para montar o cartaz completo
+      const canvas = document.createElement('canvas');
+      canvas.width = 700;
+      canvas.height = 860;
+      const ctx = canvas.getContext('2d');
+
+      // Fundo branco
+      ctx.fillStyle = '#ffffff';
+      ctx.roundRect(0, 0, 700, 860, 32);
+      ctx.fill();
+
+      // Barra verde no topo
+      ctx.fillStyle = '#00A86B';
+      ctx.roundRect(0, 0, 700, 12, [12, 12, 0, 0]);
+      ctx.fill();
+
+      // Texto rede
+      ctx.fillStyle = '#00A86B';
+      ctx.font = 'bold 22px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(nomeRede.toUpperCase(), 350, 70);
+
+      // Nome da loja
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 36px Arial';
+      ctx.fillText(nome, 350, 118);
+
+      // Carrega e desenha o QR
+      const qrImg = new Image();
+      qrImg.crossOrigin = 'anonymous';
+      await new Promise((res, rej) => {
+        qrImg.onload = res;
+        qrImg.onerror = rej;
+        qrImg.src = qrUrl;
+      });
+
+      // Fundo do QR
+      ctx.fillStyle = '#f8fafc';
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(100, 140, 500, 500, 20);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.drawImage(qrImg, 125, 160, 450, 450);
+
+      // Linha divisória
+      ctx.strokeStyle = '#f1f5f9';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(60, 666);
+      ctx.lineTo(640, 666);
+      ctx.stroke();
+
+      // Instruções
+      ctx.fillStyle = '#374151';
+      ctx.font = 'bold 18px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('Como registrar uma perda:', 350, 700);
+
+      ctx.font = '16px Arial';
+      ctx.fillStyle = '#6b7280';
+      ctx.textAlign = 'left';
+      const steps = [
+        '1  Aponte a câmera do celular para o QR Code acima',
+        '2  Selecione seu nome na lista',
+        '3  Siga os passos e registre em menos de 1 minuto',
+      ];
+      steps.forEach((s, i) => { ctx.fillText(s, 80, 736 + i * 32); });
+
+      // Rodapé
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '14px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('PerdaZero · perdazero.com.br', 350, 838);
+
+      // No iOS: abre a imagem em nova aba para o usuário salvar com toque longo
+      // No desktop: faz download direto
+      const dataUrl = canvas.toDataURL('image/png');
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) {
+        // iOS não suporta download direto — abre a imagem na tela
+        const w = window.open('', '_blank');
+        if (w) {
+          w.document.write('<html><head><title>QR - ' + nome + '</title><meta name="viewport" content="width=device-width"><style>body{margin:0;background:#0f172a;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px}img{max-width:100%;border-radius:16px}p{color:#94a3b8;font-size:13px;margin-top:16px;text-align:center;font-family:Arial}</style></head><body>');
+          w.document.write('<img src="' + dataUrl + '" alt="QR Code"/>');
+          w.document.write('<p>📲 Toque e segure na imagem para salvar no iPhone</p>');
+          w.document.write('</body></html>');
+          w.document.close();
+        }
+      } else {
+        const a = document.createElement('a');
+        a.download = 'QR_' + nome.replace(/\s+/g, '_') + '.png';
+        a.href = dataUrl;
+        a.click();
+      }
     };
 
     return (

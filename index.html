@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#00A86B">
-  <title>PerdaZero v10</title>
+  <title>PerdaZero v11</title>
 
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -197,10 +197,14 @@ function App() {
   // Melhoria 10: Gamificação - aba de ranking
   const [showRanking, setShowRanking] = useState(false);
 
-  // Obs 4/5: Fluxo "Outro" no registro
+  // Fluxo "Outro" no registro
   const [outroMode, setOutroMode] = useState(false);
   const [outroDesc, setOutroDesc] = useState('');
   const [outroUnidade, setOutroUnidade] = useState('un');
+
+  // Modal QR imagem (fallback iOS)
+  const [qrImagemModal, setQrImagemModal] = useState(null);
+  const [qrImagemNome, setQrImagemNome] = useState('');
   const [fotoModal, setFotoModal] = useState(null);
   const [copiedSlug, setCopiedSlug] = useState(null);
   const fileInputRef = useRef(null);
@@ -635,8 +639,16 @@ function App() {
       '<div class="footer">Relatorio gerado pelo <strong>PerdaZero</strong> &middot; perdazero.com.br &middot; '+dataGer+'</div>'+
       '</div></body></html>';
 
-    const w = window.open('', '_blank');
-    if (w) { w.document.write(pag); w.document.close(); setTimeout(() => w.print(), 800); }
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (isIOS) {
+      // iOS: converte em blob e abre como URL — Safari aceita isso
+      const blob = new Blob([pag], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      window.location.href = url;
+    } else {
+      const w = window.open('', '_blank');
+      if (w) { w.document.write(pag); w.document.close(); setTimeout(() => w.print(), 800); }
+    }
   };
 
   // ==========================================
@@ -756,6 +768,18 @@ function App() {
         <img src={fotoModal} className="w-full h-auto max-h-[60vh] object-cover rounded-xl" alt="Evidência" />
       </div>
       <p className="text-white mt-6 bg-brand px-6 py-2 rounded-full font-bold tracking-widest text-sm">AUDITORIA VISUAL</p>
+    </div>
+  );
+
+  const QRImagemModal = () => !qrImagemModal ? null : (
+    <div className="absolute inset-0 bg-slate-900 z-50 flex flex-col items-center justify-center p-6 animate-fade-in">
+      <p className="text-white font-bold text-lg mb-2 text-center">QR Code — {qrImagemNome}</p>
+      <p className="text-slate-400 text-sm mb-6 text-center">📲 Toque e segure na imagem para salvar no iPhone</p>
+      <img src={qrImagemModal} className="w-full max-w-xs rounded-2xl shadow-2xl border-4 border-brand" alt="QR Code"/>
+      <button onClick={() => setQrImagemModal(null)}
+        className="mt-8 bg-white text-slate-800 font-bold px-8 py-3 rounded-2xl text-sm active:scale-95">
+        Fechar
+      </button>
     </div>
   );
 
@@ -1290,6 +1314,7 @@ function App() {
     return (
       <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0"><Sidebar/><div className="dsk-main flex-1 flex flex-col h-full min-h-0 pt-safe pb-safe overflow-hidden">
         <PhotoModal/>
+        <QRImagemModal/>
 
         {showOnboarding && (() => {
           const steps = [
@@ -1811,99 +1836,89 @@ function App() {
 
     const baixarQR = async (slug, nome) => {
       const appUrl = APP_URL + '?loja=' + slug;
-      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=20&data=' + encodeURIComponent(appUrl);
+      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=10&data=' + encodeURIComponent(appUrl);
       const nomeRede = conta?.nome_rede || 'PerdaZero';
 
-      // Cria canvas para montar o cartaz completo
       const canvas = document.createElement('canvas');
-      canvas.width = 700;
-      canvas.height = 860;
+      canvas.width = 600;
+      canvas.height = 780;
       const ctx = canvas.getContext('2d');
 
-      // Fundo branco
+      // Fundo branco simples (sem roundRect — não suportado no Safari iOS)
       ctx.fillStyle = '#ffffff';
-      ctx.roundRect(0, 0, 700, 860, 32);
-      ctx.fill();
+      ctx.fillRect(0, 0, 600, 780);
 
-      // Barra verde no topo
+      // Barra verde topo
       ctx.fillStyle = '#00A86B';
-      ctx.roundRect(0, 0, 700, 12, [12, 12, 0, 0]);
-      ctx.fill();
+      ctx.fillRect(0, 0, 600, 10);
 
-      // Texto rede
+      // Nome da rede
       ctx.fillStyle = '#00A86B';
-      ctx.font = 'bold 22px Arial';
+      ctx.font = 'bold 20px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText(nomeRede.toUpperCase(), 350, 70);
+      ctx.fillText(nomeRede.toUpperCase(), 300, 55);
 
       // Nome da loja
       ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 36px Arial';
-      ctx.fillText(nome, 350, 118);
+      ctx.font = 'bold 32px Arial';
+      ctx.fillText(nome, 300, 100);
 
-      // Carrega e desenha o QR
+      // Fundo cinza do QR
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(80, 125, 440, 440);
+
+      // Carrega QR
       const qrImg = new Image();
       qrImg.crossOrigin = 'anonymous';
-      await new Promise((res, rej) => {
-        qrImg.onload = res;
-        qrImg.onerror = rej;
-        qrImg.src = qrUrl;
-      });
-
-      // Fundo do QR
-      ctx.fillStyle = '#f8fafc';
-      ctx.strokeStyle = '#e2e8f0';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.roundRect(100, 140, 500, 500, 20);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.drawImage(qrImg, 125, 160, 450, 450);
+      try {
+        await new Promise((res, rej) => {
+          qrImg.onload = res;
+          qrImg.onerror = rej;
+          qrImg.src = qrUrl + '&t=' + Date.now();
+        });
+        ctx.drawImage(qrImg, 100, 140, 400, 400);
+      } catch(e) {
+        ctx.fillStyle = '#ef4444';
+        ctx.font = '14px Arial';
+        ctx.fillText('Erro ao carregar QR. Tente novamente.', 300, 340);
+      }
 
       // Linha divisória
-      ctx.strokeStyle = '#f1f5f9';
+      ctx.strokeStyle = '#e2e8f0';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(60, 666);
-      ctx.lineTo(640, 666);
+      ctx.moveTo(40, 585);
+      ctx.lineTo(560, 585);
       ctx.stroke();
 
       // Instruções
       ctx.fillStyle = '#374151';
-      ctx.font = 'bold 18px Arial';
+      ctx.font = 'bold 16px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText('Como registrar uma perda:', 350, 700);
+      ctx.fillText('Como registrar uma perda:', 300, 615);
 
-      ctx.font = '16px Arial';
+      ctx.font = '14px Arial';
       ctx.fillStyle = '#6b7280';
       ctx.textAlign = 'left';
-      const steps = [
-        '1  Aponte a câmera do celular para o QR Code acima',
-        '2  Selecione seu nome na lista',
-        '3  Siga os passos e registre em menos de 1 minuto',
-      ];
-      steps.forEach((s, i) => { ctx.fillText(s, 80, 736 + i * 32); });
+      ['1  Aponte a câmera para o QR Code acima',
+       '2  Selecione seu nome na lista',
+       '3  Registre a perda em menos de 1 minuto'
+      ].forEach((s, i) => ctx.fillText(s, 60, 645 + i * 30));
 
       // Rodapé
       ctx.fillStyle = '#94a3b8';
-      ctx.font = '14px Arial';
+      ctx.font = '13px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText('PerdaZero · perdazero.com.br', 350, 838);
+      ctx.fillText('PerdaZero · perdazero.com.br', 300, 758);
 
-      // No iOS: abre a imagem em nova aba para o usuário salvar com toque longo
-      // No desktop: faz download direto
       const dataUrl = canvas.toDataURL('image/png');
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       if (isIOS) {
-        // iOS não suporta download direto — abre a imagem na tela
-        const w = window.open('', '_blank');
-        if (w) {
-          w.document.write('<html><head><title>QR - ' + nome + '</title><meta name="viewport" content="width=device-width"><style>body{margin:0;background:#0f172a;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px}img{max-width:100%;border-radius:16px}p{color:#94a3b8;font-size:13px;margin-top:16px;text-align:center;font-family:Arial}</style></head><body>');
-          w.document.write('<img src="' + dataUrl + '" alt="QR Code"/>');
-          w.document.write('<p>📲 Toque e segure na imagem para salvar no iPhone</p>');
-          w.document.write('</body></html>');
-          w.document.close();
+        const w = window.open(dataUrl, '_blank');
+        if (!w) {
+          // Safari bloqueou popup — mostra a imagem inline no próprio app
+          setQrImagemModal(dataUrl);
+          setQrImagemNome(nome);
         }
       } else {
         const a = document.createElement('a');

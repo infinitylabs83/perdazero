@@ -14,6 +14,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <!-- QR Code generator -->
   <style>
     * { box-sizing: border-box; }
@@ -879,6 +880,32 @@ function App() {
 
   // Overlay global do modal QR — aparece em qualquer tela do gestor
   if (qrImagemModal) {
+    const salvarCartaz = async () => {
+      const el = document.getElementById('qr-cartaz');
+      if (!el || !window.html2canvas) return;
+      try {
+        const canvas = await window.html2canvas(el, { scale: 3, useCORS: true, backgroundColor: '#ffffff' });
+        const dataUrl = canvas.toDataURL('image/png');
+        // iOS: abre a imagem numa nova aba — o usuário salva com toque longo
+        const w = window.open('', '_blank');
+        if (w) {
+          w.document.write('<html><head><meta name="viewport" content="width=device-width"><style>body{margin:0;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:16px;font-family:Arial}img{max-width:100%;border-radius:12px}p{color:#aaa;font-size:13px;margin-top:16px;text-align:center}</style></head><body>');
+          w.document.write('<img src="' + dataUrl + '" alt="Cartaz QR"/>');
+          w.document.write('<p>📲 Toque e segure para salvar no iPhone</p>');
+          w.document.write('</body></html>');
+          w.document.close();
+        } else {
+          // Popup bloqueado — faz download direto
+          const a = document.createElement('a');
+          a.download = 'QR_' + qrImagemNome.replace(/\s+/g,'_') + '.png';
+          a.href = dataUrl;
+          a.click();
+        }
+      } catch(e) {
+        alert('Erro ao gerar imagem. Tente novamente.');
+      }
+    };
+
     return (
       <div className="flex-1 flex flex-col bg-slate-900 z-50 overflow-y-auto">
         <div className="flex flex-col items-center justify-start p-6 min-h-full">
@@ -886,29 +913,40 @@ function App() {
             className="self-end mb-4 text-slate-400 text-sm font-bold bg-slate-800 px-4 py-2 rounded-xl">
             ✕ Fechar
           </button>
-          <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl">
-            <div className="h-2 bg-brand w-full"/>
+
+          {/* Cartaz — este elemento inteiro vira imagem */}
+          <div id="qr-cartaz" className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl">
+            <div style={{height:'8px', background:'#00A86B', width:'100%'}}/>
             <div className="p-6 text-center">
-              <p className="text-brand text-xs font-bold tracking-widest uppercase mb-1">{conta?.nome_rede || 'PerdaZero'}</p>
-              <p className="text-slate-900 font-black text-xl mb-4">{qrImagemNome}</p>
-              <div className="bg-gray-50 rounded-xl p-3 inline-block mb-4 border border-gray-200">
-                <img src={qrImagemModal} width="240" height="240" alt="QR Code" className="block"/>
+              <p style={{color:'#00A86B', fontSize:'11px', fontWeight:'700', letterSpacing:'3px', textTransform:'uppercase', marginBottom:'4px'}}>{conta?.nome_rede || 'PerdaZero'}</p>
+              <p style={{color:'#0f172a', fontWeight:'900', fontSize:'22px', marginBottom:'20px'}}>{qrImagemNome}</p>
+              <div style={{background:'#f8fafc', borderRadius:'16px', padding:'12px', display:'inline-block', marginBottom:'20px', border:'1px solid #e2e8f0'}}>
+                <img src={qrImagemModal} width="220" height="220" alt="QR Code" crossOrigin="anonymous" style={{display:'block'}}/>
               </div>
-              <div className="border-t border-gray-100 pt-4 text-left space-y-2">
-                <p className="text-xs font-bold text-slate-500 text-center mb-3">Como registrar uma perda:</p>
-                {['Aponte a câmera para o QR Code','Selecione seu nome na lista','Registre em menos de 1 minuto'].map((s,i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="w-5 h-5 bg-brand text-white text-[10px] font-bold rounded-full flex items-center justify-center shrink-0">{i+1}</span>
-                    <span className="text-xs text-slate-500">{s}</span>
+              <div style={{borderTop:'1px solid #f1f5f9', paddingTop:'16px', textAlign:'left'}}>
+                <p style={{fontSize:'11px', fontWeight:'700', color:'#374151', textAlign:'center', marginBottom:'12px'}}>Como registrar uma perda:</p>
+                {['Aponte a câmera para o QR Code acima','Selecione seu nome na lista','Registre a perda em menos de 1 minuto'].map((s,i) => (
+                  <div key={i} style={{display:'flex', alignItems:'center', gap:'8px', marginBottom:'8px'}}>
+                    <span style={{width:'20px', height:'20px', background:'#00A86B', color:'#fff', fontSize:'10px', fontWeight:'700', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0}}>{i+1}</span>
+                    <span style={{fontSize:'11px', color:'#6b7280'}}>{s}</span>
                   </div>
                 ))}
               </div>
-              <p className="text-[10px] text-slate-300 mt-4">PerdaZero · perdazero.com.br</p>
+              <p style={{fontSize:'10px', color:'#cbd5e1', marginTop:'16px'}}>PerdaZero · perdazero.com.br</p>
             </div>
           </div>
-          <p className="text-slate-400 text-sm mt-6 text-center leading-relaxed px-4">
-            📲 <span className="text-white font-bold">Toque e segure</span> na imagem do QR Code acima para salvar no iPhone e enviar para impressão
-          </p>
+
+          {/* Botão salvar */}
+          <button onClick={salvarCartaz}
+            className="mt-6 w-full max-w-xs bg-brand text-white font-bold py-4 rounded-2xl text-base active:scale-95 transition-transform shadow-lg">
+            ⬇️ Salvar cartaz completo
+          </button>
+          <p className="text-slate-500 text-xs mt-3 text-center">O cartaz completo com nome e instruções será salvo</p>
+
+          <button onClick={() => setQrImagemModal(null)}
+            className="mt-4 text-slate-600 text-sm py-2">
+            Fechar
+          </button>
         </div>
       </div>
     );

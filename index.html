@@ -877,6 +877,43 @@ function App() {
     return <TelaAuth onLogin={() => {}} supabase={supabase} />;
   }
 
+  // Overlay global do modal QR — aparece em qualquer tela do gestor
+  if (qrImagemModal) {
+    return (
+      <div className="flex-1 flex flex-col bg-slate-900 z-50 overflow-y-auto">
+        <div className="flex flex-col items-center justify-start p-6 min-h-full">
+          <button onClick={() => setQrImagemModal(null)}
+            className="self-end mb-4 text-slate-400 text-sm font-bold bg-slate-800 px-4 py-2 rounded-xl">
+            ✕ Fechar
+          </button>
+          <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl">
+            <div className="h-2 bg-brand w-full"/>
+            <div className="p-6 text-center">
+              <p className="text-brand text-xs font-bold tracking-widest uppercase mb-1">{conta?.nome_rede || 'PerdaZero'}</p>
+              <p className="text-slate-900 font-black text-xl mb-4">{qrImagemNome}</p>
+              <div className="bg-gray-50 rounded-xl p-3 inline-block mb-4 border border-gray-200">
+                <img src={qrImagemModal} width="240" height="240" alt="QR Code" className="block"/>
+              </div>
+              <div className="border-t border-gray-100 pt-4 text-left space-y-2">
+                <p className="text-xs font-bold text-slate-500 text-center mb-3">Como registrar uma perda:</p>
+                {['Aponte a câmera para o QR Code','Selecione seu nome na lista','Registre em menos de 1 minuto'].map((s,i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="w-5 h-5 bg-brand text-white text-[10px] font-bold rounded-full flex items-center justify-center shrink-0">{i+1}</span>
+                    <span className="text-xs text-slate-500">{s}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-300 mt-4">PerdaZero · perdazero.com.br</p>
+            </div>
+          </div>
+          <p className="text-slate-400 text-sm mt-6 text-center leading-relaxed px-4">
+            📲 <span className="text-white font-bold">Toque e segure</span> na imagem do QR Code acima para salvar no iPhone e enviar para impressão
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // ==========================================
   // TELA: QR CODE CARREGANDO
   // ==========================================
@@ -1858,7 +1895,6 @@ function App() {
     const baixarQR = (slug, nome) => {
       const appUrl = APP_URL + '?loja=' + slug;
       const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=20&data=' + encodeURIComponent(appUrl);
-      // Mostra modal com a imagem — funciona em qualquer browser incluindo Safari iOS
       setQrImagemModal(qrUrl);
       setQrImagemNome(nome);
     };

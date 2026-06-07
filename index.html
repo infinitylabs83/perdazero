@@ -772,14 +772,35 @@ function App() {
   );
 
   const QRImagemModal = () => !qrImagemModal ? null : (
-    <div className="absolute inset-0 bg-slate-900 z-50 flex flex-col items-center justify-center p-6 animate-fade-in">
-      <p className="text-white font-bold text-lg mb-2 text-center">QR Code — {qrImagemNome}</p>
-      <p className="text-slate-400 text-sm mb-6 text-center">📲 Toque e segure na imagem para salvar no iPhone</p>
-      <img src={qrImagemModal} className="w-full max-w-xs rounded-2xl shadow-2xl border-4 border-brand" alt="QR Code"/>
+    <div className="absolute inset-0 bg-slate-900 z-50 flex flex-col items-center justify-start p-6 animate-fade-in overflow-y-auto">
       <button onClick={() => setQrImagemModal(null)}
-        className="mt-8 bg-white text-slate-800 font-bold px-8 py-3 rounded-2xl text-sm active:scale-95">
-        Fechar
+        className="self-end mb-4 text-slate-400 text-sm font-bold bg-slate-800 px-4 py-2 rounded-xl">
+        ✕ Fechar
       </button>
+      {/* Cartaz para salvar */}
+      <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl">
+        <div className="h-2 bg-brand w-full"/>
+        <div className="p-6 text-center">
+          <p className="text-brand text-xs font-bold tracking-widest uppercase mb-1">{conta?.nome_rede || 'PerdaZero'}</p>
+          <p className="text-slate-900 font-black text-xl mb-4">{qrImagemNome}</p>
+          <div className="bg-gray-50 rounded-xl p-3 inline-block mb-4 border border-gray-200">
+            <img src={qrImagemModal} width="220" height="220" alt="QR Code" className="block"/>
+          </div>
+          <div className="border-t border-gray-100 pt-4 text-left space-y-2">
+            <p className="text-xs font-bold text-slate-500 text-center mb-3">Como registrar uma perda:</p>
+            {['Aponte a câmera para o QR Code','Selecione seu nome na lista','Registre em menos de 1 minuto'].map((s,i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="w-5 h-5 bg-brand text-white text-[10px] font-bold rounded-full flex items-center justify-center shrink-0">{i+1}</span>
+                <span className="text-xs text-slate-500">{s}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-300 mt-4">PerdaZero · perdazero.com.br</p>
+        </div>
+      </div>
+      <p className="text-slate-400 text-sm mt-6 text-center leading-relaxed">
+        📲 <span className="text-white font-bold">Toque e segure</span> na imagem do QR<br/>para salvar no iPhone e enviar para impressão
+      </p>
     </div>
   );
 
@@ -1834,98 +1855,12 @@ function App() {
       return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${url}`;
     };
 
-    const baixarQR = async (slug, nome) => {
+    const baixarQR = (slug, nome) => {
       const appUrl = APP_URL + '?loja=' + slug;
-      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=10&data=' + encodeURIComponent(appUrl);
-      const nomeRede = conta?.nome_rede || 'PerdaZero';
-
-      const canvas = document.createElement('canvas');
-      canvas.width = 600;
-      canvas.height = 780;
-      const ctx = canvas.getContext('2d');
-
-      // Fundo branco simples (sem roundRect — não suportado no Safari iOS)
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, 600, 780);
-
-      // Barra verde topo
-      ctx.fillStyle = '#00A86B';
-      ctx.fillRect(0, 0, 600, 10);
-
-      // Nome da rede
-      ctx.fillStyle = '#00A86B';
-      ctx.font = 'bold 20px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(nomeRede.toUpperCase(), 300, 55);
-
-      // Nome da loja
-      ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 32px Arial';
-      ctx.fillText(nome, 300, 100);
-
-      // Fundo cinza do QR
-      ctx.fillStyle = '#f8fafc';
-      ctx.fillRect(80, 125, 440, 440);
-
-      // Carrega QR
-      const qrImg = new Image();
-      qrImg.crossOrigin = 'anonymous';
-      try {
-        await new Promise((res, rej) => {
-          qrImg.onload = res;
-          qrImg.onerror = rej;
-          qrImg.src = qrUrl + '&t=' + Date.now();
-        });
-        ctx.drawImage(qrImg, 100, 140, 400, 400);
-      } catch(e) {
-        ctx.fillStyle = '#ef4444';
-        ctx.font = '14px Arial';
-        ctx.fillText('Erro ao carregar QR. Tente novamente.', 300, 340);
-      }
-
-      // Linha divisória
-      ctx.strokeStyle = '#e2e8f0';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(40, 585);
-      ctx.lineTo(560, 585);
-      ctx.stroke();
-
-      // Instruções
-      ctx.fillStyle = '#374151';
-      ctx.font = 'bold 16px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('Como registrar uma perda:', 300, 615);
-
-      ctx.font = '14px Arial';
-      ctx.fillStyle = '#6b7280';
-      ctx.textAlign = 'left';
-      ['1  Aponte a câmera para o QR Code acima',
-       '2  Selecione seu nome na lista',
-       '3  Registre a perda em menos de 1 minuto'
-      ].forEach((s, i) => ctx.fillText(s, 60, 645 + i * 30));
-
-      // Rodapé
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '13px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('PerdaZero · perdazero.com.br', 300, 758);
-
-      const dataUrl = canvas.toDataURL('image/png');
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-      if (isIOS) {
-        const w = window.open(dataUrl, '_blank');
-        if (!w) {
-          // Safari bloqueou popup — mostra a imagem inline no próprio app
-          setQrImagemModal(dataUrl);
-          setQrImagemNome(nome);
-        }
-      } else {
-        const a = document.createElement('a');
-        a.download = 'QR_' + nome.replace(/\s+/g, '_') + '.png';
-        a.href = dataUrl;
-        a.click();
-      }
+      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=20&data=' + encodeURIComponent(appUrl);
+      // Mostra modal com a imagem — funciona em qualquer browser incluindo Safari iOS
+      setQrImagemModal(qrUrl);
+      setQrImagemNome(nome);
     };
 
     return (

@@ -882,27 +882,28 @@ function App() {
   if (qrImagemModal) {
     const salvarCartaz = async () => {
       const el = document.getElementById('qr-cartaz');
-      if (!el || !window.html2canvas) return;
+      if (!el || !window.html2canvas) { alert('Aguarde carregar...'); return; }
       try {
         const canvas = await window.html2canvas(el, { scale: 3, useCORS: true, backgroundColor: '#ffffff' });
-        const dataUrl = canvas.toDataURL('image/png');
-        // iOS: abre a imagem numa nova aba — o usuário salva com toque longo
-        const w = window.open('', '_blank');
-        if (w) {
-          w.document.write('<html><head><meta name="viewport" content="width=device-width"><style>body{margin:0;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:16px;font-family:Arial}img{max-width:100%;border-radius:12px}p{color:#aaa;font-size:13px;margin-top:16px;text-align:center}</style></head><body>');
-          w.document.write('<img src="' + dataUrl + '" alt="Cartaz QR"/>');
-          w.document.write('<p>📲 Toque e segure para salvar no iPhone</p>');
-          w.document.write('</body></html>');
-          w.document.close();
-        } else {
-          // Popup bloqueado — faz download direto
-          const a = document.createElement('a');
-          a.download = 'QR_' + qrImagemNome.replace(/\s+/g,'_') + '.png';
-          a.href = dataUrl;
-          a.click();
-        }
+        canvas.toBlob(async (blob) => {
+          const file = new File([blob], 'QR_' + qrImagemNome.replace(/\s+/g,'_') + '.png', { type: 'image/png' });
+          // Web Share API — abre menu nativo do iPhone (salvar foto, WhatsApp, imprimir, etc)
+          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+              await navigator.share({ files: [file], title: 'QR Code - ' + qrImagemNome });
+            } catch(e) { /* usuário cancelou */ }
+          } else {
+            // Fallback para desktop
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'QR_' + qrImagemNome.replace(/\s+/g,'_') + '.png';
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          }
+        }, 'image/png');
       } catch(e) {
-        alert('Erro ao gerar imagem. Tente novamente.');
+        alert('Erro ao gerar imagem: ' + e.message);
       }
     };
 
@@ -939,9 +940,9 @@ function App() {
           {/* Botão salvar */}
           <button onClick={salvarCartaz}
             className="mt-6 w-full max-w-xs bg-brand text-white font-bold py-4 rounded-2xl text-base active:scale-95 transition-transform shadow-lg">
-            ⬇️ Salvar cartaz completo
+            📤 Compartilhar / Salvar / Imprimir
           </button>
-          <p className="text-slate-500 text-xs mt-3 text-center">O cartaz completo com nome e instruções será salvo</p>
+          <p className="text-slate-500 text-xs mt-3 text-center">Abre o menu do iPhone para salvar nas fotos, enviar pelo WhatsApp ou imprimir</p>
 
           <button onClick={() => setQrImagemModal(null)}
             className="mt-4 text-slate-600 text-sm py-2">

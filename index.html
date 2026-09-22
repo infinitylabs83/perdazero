@@ -157,6 +157,7 @@ function App() {
   const [qrPinUser, setQrPinUser] = useState(null);    // Usuário aguardando PIN no QR
   const [qrPinAttempt, setQrPinAttempt] = useState('');
   const [qrPinError, setQrPinError] = useState(false);
+  const [qrPinChecando, setQrPinChecando] = useState(false);
 
   // Filtros dashboard
   const [filtroTempo, setFiltroTempo] = useState('hoje');
@@ -207,6 +208,7 @@ function App() {
   const [qrImagemModal, setQrImagemModal] = useState(null);
   const [qrImagemNome, setQrImagemNome] = useState('');
   const [fotoModal, setFotoModal] = useState(null);
+  const [fotoUrls, setFotoUrls] = useState({}); // caminho salvo -> URL assinada (bucket é privado)
   const [copiedSlug, setCopiedSlug] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -245,35 +247,19 @@ function App() {
   useEffect(() => {
     if (!slugQR || !supabase) return;
     async function carregarLojaQR() {
-      const { data: lojaData, error } = await supabase
-        .from('lojas')
-        .select('id, nome, slug_acesso, conta_id, contas(id, nome_rede, logo_rede)')
-        .eq('slug_acesso', slugQR)
-        .single();
+      // Carrega tudo por uma função do servidor (qr_contexto_loja) — a leitura
+      // direta das tabelas não é mais pública, para não vazar dados de outras contas.
+      const { data, error } = await supabase.rpc('qr_contexto_loja', { p_slug: slugQR });
 
-      if (error || !lojaData) {
+      if (error || !data || !data.loja || !data.conta) {
         setView('qr_invalido');
         return;
       }
 
-      // Carrega equipe desta loja
-      const { data: equipeData } = await supabase
-        .from('equipe')
-        .select('*')
-        .eq('loja_id', lojaData.id)
-        .order('nome');
-
-      // Carrega produtos desta conta
-      const { data: prodData } = await supabase
-        .from('produtos')
-        .select('*')
-        .eq('conta_id', lojaData.conta_id)
-        .order('nome');
-
-      setLojaQR(lojaData);
-      setConta(lojaData.contas);
-      setEquipe(equipeData || []);
-      setProdutos(prodData || []);
+      setLojaQR({ ...data.loja, contas: data.conta });
+      setConta(data.conta);
+      setEquipe(data.equipe || []);
+      setProdutos(data.produtos || []);
       setView('qr_select_user');
     }
     carregarLojaQR();
@@ -325,6 +311,19 @@ function App() {
     }
   };
 
+  // O bucket de fotos é privado — pede URLs assinadas (válidas por 1h) só para
+  // quem está logado como dono da conta. As URLs ficam em cache local (fotoUrls).
+  const assinarFotos = async (registros) => {
+    if (!supabase) return;
+    const caminhos = [...new Set(registros.filter(r => r.foto_url && !r.foto_url.startsWith('http')).map(r => r.foto_url))];
+    if (caminhos.length === 0) return;
+    const { data, error } = await supabase.storage.from('fotos_perdas').createSignedUrls(caminhos, 3600);
+    if (error || !data) return;
+    const novasUrls = {};
+    data.forEach(d => { if (d.signedUrl) novasUrls[d.path] = d.signedUrl; });
+    setFotoUrls(prev => ({ ...prev, ...novasUrls }));
+  };
+
   const carregarDados = async (conta_id, limite = 50) => {
     if (!supabase) return;
     const [lojasRes, equipeRes, prodRes, histRes] = await Promise.all([
@@ -336,7 +335,7 @@ function App() {
     if (lojasRes.data) setLojas(lojasRes.data);
     if (equipeRes.data) setEquipe(equipeRes.data);
     if (prodRes.data) setProdutos(prodRes.data);
-    if (histRes.data) setHistorico(histRes.data);
+    if (histRes.data) { setHistorico(histRes.data); assinarFotos(histRes.data); }
   };
 
   const carregarMaisHistorico = async () => {
@@ -344,7 +343,7 @@ function App() {
     const novoLimite = pagHistorico + 50;
     setPagHistorico(novoLimite);
     const { data } = await supabase.from('historico').select('*').eq('conta_id', perfil.conta_id).order('timestamp', { ascending: false }).limit(novoLimite);
-    if (data) setHistorico(data);
+    if (data) { setHistorico(data); assinarFotos(data); }
   };
 
   const handleLogout = async () => {
@@ -427,10 +426,10 @@ function App() {
     setIsUploading(true);
     const lojaAtual = lojaQR || lojas.find(l => l.id === parseInt(filtroLoja)) || lojas[0];
     // conta_id: busca em todas as fontes — conta_id direto, objeto contas aninhado, ou conta logada
-    const contaId = lojaQR?.conta_id 
-      || lojaQR?.contas?.id 
-      || conta?.id 
-      || lojaAtual?.conta_id 
+    const contaId = lojaQR?.conta_id
+      || lojaQR?.contas?.id
+      || conta?.id
+      || lojaAtual?.conta_id
       || null;
 
     if (!contaId) {
@@ -439,22 +438,48 @@ function App() {
       return;
     }
 
-    let fotoUrl = null;
+    // O bucket de fotos é privado — guardamos só o caminho do arquivo.
+    // A URL para exibir é assinada na hora, só para o dono logado (ver assinarFotos()).
+    let fotoPath = null;
     if (reg.foto_arquivo && supabase) {
       const ext = reg.foto_arquivo.name.split('.').pop();
       const fname = `${contaId}/${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage.from('fotos_perdas').upload(fname, reg.foto_arquivo);
-      if (!upErr) {
-        const { data: urlData } = supabase.storage.from('fotos_perdas').getPublicUrl(fname);
-        fotoUrl = urlData.publicUrl;
-      }
+      if (!upErr) fotoPath = fname;
     }
 
     const qtdNum = parseFloat(reg.qtd.toString().replace(',','.')) || 0;
+
+    if (slugQR) {
+      // Fluxo QR (sem login): a gravação passa por uma função no servidor que
+      // revalida a loja/conta pelo slug — nunca confia no conta_id vindo do navegador.
+      const { error } = await supabase.rpc('qr_registrar_perda', {
+        p_slug: slugQR,
+        p_loja_id: lojaAtual?.id,
+        p_relator: funcUser?.nome || 'Equipe',
+        p_responsavel: responsavel,
+        p_prod: reg.produto,
+        p_qtd: qtdNum,
+        p_uni: reg.unidade,
+        p_motivo: reg.motivo,
+        p_observacao: obsColega,
+        p_icone: reg.icone,
+        p_custo_unitario: reg.custo_unitario,
+        p_foto_path: fotoPath
+      });
+      if (error) { alert('Erro ao salvar: ' + error.message); setIsUploading(false); return; }
+      setIsUploading(false);
+      alert('✅ Perda registrada com sucesso!');
+      resetFlow();
+      setFuncUser(null); setView('qr_select_user');
+      return;
+    }
+
+    // Fluxo do painel (dono logado) — segue gravando direto, protegido pela RLS da própria conta.
     const obj = {
       conta_id: contaId,
       loja_id: lojaAtual?.id,
-      relator: funcUser?.nome || perfil?.nome || 'Sistema',
+      relator: perfil?.nome || 'Gestor',
       responsavel,
       prod: reg.produto,
       qtd: qtdNum,
@@ -464,23 +489,18 @@ function App() {
       hora: `Hoje, ${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}`,
       img: reg.icone,
       custo_total: qtdNum * reg.custo_unitario,
-      foto_url: fotoUrl,
+      foto_url: fotoPath,
       timestamp: Date.now()
     };
 
-    if (supabase) {
-      const { data, error } = await supabase.from('historico').insert([obj]).select();
-      if (error) { alert('Erro ao salvar: ' + error.message); setIsUploading(false); return; }
-      if (!slugQR) setHistorico([data[0], ...historico]);
-    }
-
+    const { data, error } = await supabase.from('historico').insert([obj]).select();
+    if (error) { alert('Erro ao salvar: ' + error.message); setIsUploading(false); return; }
+    setHistorico([data[0], ...historico]);
+    assinarFotos([data[0]]);
     setIsUploading(false);
     alert('✅ Perda registrada com sucesso!');
     resetFlow();
-
-    // Se veio por QR: volta para seleção de usuário
-    if (slugQR) { setFuncUser(null); setView('qr_select_user'); }
-    else setView('dashboard');
+    setView('dashboard');
   };
 
   // Onboarding
@@ -503,7 +523,7 @@ function App() {
     // Rankings
     const porProd = {}; dados.forEach(i => { porProd[i.prod]=(porProd[i.prod]||0)+(i.custo_total||0); });
     const topProd = Object.entries(porProd).sort((a,b)=>b[1]-a[1]).slice(0,5);
-    const porResp = {}; dados.forEach(i => { if(i.responsavel!=='Nao identificado') porResp[i.responsavel]=(porResp[i.responsavel]||0)+(i.custo_total||0); });
+    const porResp = {}; dados.forEach(i => { if(i.responsavel!=='Não identificado') porResp[i.responsavel]=(porResp[i.responsavel]||0)+(i.custo_total||0); });
     const topResp = Object.entries(porResp).sort((a,b)=>b[1]-a[1]).slice(0,5);
     const porMotivo = {}; dados.forEach(i => { porMotivo[i.motivo]=(porMotivo[i.motivo]||0)+(i.custo_total||0); });
     const topMotivo = Object.entries(porMotivo).sort((a,b)=>b[1]-a[1]);
@@ -983,6 +1003,24 @@ function App() {
     const nomeLoja = lojaQR?.nome || 'Loja';
     const nomeRede = lojaQR?.contas?.nome_rede || 'PerdaZero';
 
+    const digitarPin = async (digito) => {
+      if (qrPinAttempt.length >= 4 || qrPinChecando) return;
+      const novo = qrPinAttempt + digito;
+      setQrPinAttempt(novo);
+      if (novo.length < 4) return;
+      setQrPinChecando(true);
+      const { data: ok } = await supabase.rpc('qr_verificar_pin', { p_membro_id: qrPinUser.id, p_pin: novo });
+      setQrPinChecando(false);
+      if (ok) {
+        const u = qrPinUser;
+        setQrPinUser(null); setQrPinAttempt(''); setQrPinError(false);
+        setFuncUser(u); resetFlow(); setView('flow_qr');
+      } else {
+        setQrPinError(true);
+        setTimeout(() => { setQrPinAttempt(''); setQrPinError(false); }, 800);
+      }
+    };
+
     return (
       <div className="flex-1 flex flex-col bg-gray-50 animate-fade-in min-h-0">
         <div className="bg-brand p-6 pt-10 pb-8 rounded-b-[40px] shadow-lg text-white text-center pt-safe flex-shrink-0">
@@ -1003,7 +1041,7 @@ function App() {
           <div className="grid grid-cols-2 gap-4 pb-6">
             {equipeDaLoja.map(m => (
               <button key={m.id} onClick={() => {
-                if (m.funcao !== 'operacional' && m.codigo) {
+                if (m.tem_senha) {
                   setQrPinUser(m);
                   setQrPinAttempt('');
                   setQrPinError(false);
@@ -1014,7 +1052,7 @@ function App() {
                 className="bg-white border border-gray-200 p-5 rounded-3xl flex flex-col items-center shadow-sm hover:border-brand hover:shadow-md active:scale-95 transition-all">
                 <div className="text-5xl mb-3 bg-gray-50 p-4 rounded-full shadow-inner">{m.avatar || '👤'}</div>
                 <span className="font-bold text-slate-800 text-lg text-center leading-tight">{m.nome.split(' ')[0]}</span>
-                {m.funcao !== 'operacional' && (
+                {m.tem_senha && (
                   <span className="mt-2 text-[9px] bg-slate-800 text-white px-2 py-0.5 rounded-full uppercase flex items-center">
                     <Ico.Lock/> Senha
                   </span>
@@ -1023,7 +1061,8 @@ function App() {
             ))}
           </div>
 
-          {/* MODAL DE PIN NO QR */}
+          {/* MODAL DE PIN NO QR — a verificação roda no servidor (qr_verificar_pin);
+              o PIN nunca chega ao navegador, nem em nenhum lugar deste código. */}
           {qrPinUser && (
             <div className="absolute inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-6 animate-fade-in">
               <div className="bg-white w-full max-w-sm rounded-[40px] p-8 flex flex-col items-center shadow-2xl">
@@ -1039,45 +1078,14 @@ function App() {
                   ))}
                 </div>
                 {qrPinError && <p className="text-red-500 text-xs font-bold mb-4 animate-bounce">PIN incorreto. Tente novamente.</p>}
+                {qrPinChecando && <p className="text-slate-400 text-xs font-bold mb-4">Verificando...</p>}
                 <div className="grid grid-cols-3 gap-3 w-full">
                   {[1,2,3,4,5,6,7,8,9].map(n => (
-                    <button key={n} onClick={() => {
-                      if (qrPinAttempt.length < 4) {
-                        const novo = qrPinAttempt + n;
-                        setQrPinAttempt(novo);
-                        if (novo.length === 4) {
-                          if (novo === qrPinUser.codigo) {
-                            const u = qrPinUser;
-                            setQrPinUser(null);
-                            setQrPinAttempt('');
-                            setQrPinError(false);
-                            setFuncUser(u); resetFlow(); setView('flow_qr');
-                          } else {
-                            setQrPinError(true);
-                            setTimeout(() => { setQrPinAttempt(''); setQrPinError(false); }, 800);
-                          }
-                        }
-                      }
-                    }} className="bg-gray-50 text-slate-800 text-2xl font-bold py-4 rounded-2xl active:bg-gray-200">{n}</button>
+                    <button key={n} disabled={qrPinChecando} onClick={() => digitarPin(String(n))} className="bg-gray-50 text-slate-800 text-2xl font-bold py-4 rounded-2xl active:bg-gray-200 disabled:opacity-50">{n}</button>
                   ))}
                   <div></div>
-                  <button onClick={() => {
-                    if (qrPinAttempt.length < 4) {
-                      const novo = qrPinAttempt + '0';
-                      setQrPinAttempt(novo);
-                      if (novo.length === 4) {
-                        if (novo === qrPinUser.codigo) {
-                          const u = qrPinUser;
-                          setQrPinUser(null); setQrPinAttempt(''); setQrPinError(false);
-                          setFuncUser(u); resetFlow(); setView('flow_qr');
-                        } else {
-                          setQrPinError(true);
-                          setTimeout(() => { setQrPinAttempt(''); setQrPinError(false); }, 800);
-                        }
-                      }
-                    }
-                  }} className="bg-gray-50 text-slate-800 text-2xl font-bold py-4 rounded-2xl active:bg-gray-200">0</button>
-                  <button onClick={() => setQrPinAttempt(qrPinAttempt.slice(0,-1))} className="bg-red-50 text-red-500 py-4 rounded-2xl flex items-center justify-center active:bg-red-100"><Ico.Delete/></button>
+                  <button disabled={qrPinChecando} onClick={() => digitarPin('0')} className="bg-gray-50 text-slate-800 text-2xl font-bold py-4 rounded-2xl active:bg-gray-200 disabled:opacity-50">0</button>
+                  <button disabled={qrPinChecando} onClick={() => setQrPinAttempt(qrPinAttempt.slice(0,-1))} className="bg-red-50 text-red-500 py-4 rounded-2xl flex items-center justify-center active:bg-red-100 disabled:opacity-50"><Ico.Delete/></button>
                 </div>
               </div>
             </div>
@@ -1709,7 +1717,7 @@ function App() {
             if (registrosMes.length === 0) return null;
             const porFunc = {};
             registrosMes.forEach(i => {
-              if (!i.responsavel || i.responsavel === 'Nao identificado') return;
+              if (!i.responsavel || i.responsavel === 'Não identificado') return;
               if (!porFunc[i.responsavel]) porFunc[i.responsavel] = { total: 0, registros: 0 };
               porFunc[i.responsavel].total += (i.custo_total || 0);
               porFunc[i.responsavel].registros += 1;
@@ -1800,12 +1808,17 @@ function App() {
                 const estaComentando = comentarioAberto === item.id;
                 return (
                   <div key={item.id} className="p-4 flex gap-3">
-                    {item.foto_url && (
-                      <button onClick={() => setFotoModal(item.foto_url)} className="relative w-12 h-12 bg-gray-100 rounded-xl overflow-hidden shadow-inner border border-gray-200 flex-shrink-0 active:scale-95 group">
-                        <img src={item.foto_url} className="w-full h-full object-cover opacity-60 group-hover:opacity-30 transition-opacity"/>
-                        <div className="absolute inset-0 flex items-center justify-center text-slate-800"><Ico.Camera size={14}/></div>
-                      </button>
-                    )}
+                    {item.foto_url && (() => {
+                      // Fotos antigas (de antes do bucket ficar privado) tinham a URL pública
+                      // já salva direto; fotos novas guardam só o caminho e usam URL assinada.
+                      const url = item.foto_url.startsWith('http') ? item.foto_url : fotoUrls[item.foto_url];
+                      return (
+                        <button disabled={!url} onClick={() => url && setFotoModal(url)} className="relative w-12 h-12 bg-gray-100 rounded-xl overflow-hidden shadow-inner border border-gray-200 flex-shrink-0 active:scale-95 group disabled:opacity-40">
+                          {url ? <img src={url} className="w-full h-full object-cover opacity-60 group-hover:opacity-30 transition-opacity"/> : null}
+                          <div className="absolute inset-0 flex items-center justify-center text-slate-800"><Ico.Camera size={14}/></div>
+                        </button>
+                      );
+                    })()}
                     <div className="flex-1 overflow-hidden">
                       <div className="flex justify-between items-start">
                         <p className="font-bold text-base text-slate-800 truncate">{item.img} {item.prod} <span className="text-brand text-sm">({item.qtd}{item.uni})</span></p>

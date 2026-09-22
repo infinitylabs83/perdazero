@@ -46,10 +46,29 @@
     @media (max-width: 1023px) {
       .dsk-sidebar { display: none !important; }
     }
+    /* Tela de carregamento inicial — CSS puro, sem depender do Tailwind (que só chega
+       depois de baixar+processar). Sem isso, a primeira tela é um branco mudo
+       enquanto React/Babel/Tailwind carregam, o que numa cozinha com wifi ruim
+       pode durar vários segundos parecendo que travou. */
+    .boot-loader {
+      position: fixed; inset: 0; background: #0f172a;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      z-index: 9999;
+    }
+    .boot-loader__ring {
+      width: 48px; height: 48px; border-radius: 999px;
+      border: 4px solid rgba(0,168,107,0.25); border-top-color: #00A86B;
+      animation: boot-spin 0.8s linear infinite;
+    }
+    .boot-loader__label { color: #fff; font-weight: 800; font-family: Arial, Helvetica, sans-serif; font-size: 20px; letter-spacing: -0.02em; }
+    .boot-loader__label span { color: #00A86B; }
+    @keyframes boot-spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body class="bg-gray-200 w-screen overflow-hidden flex justify-center" style="height:100vh;height:100dvh;">
-<div id="root" class="w-full h-full bg-white overflow-hidden flex flex-col relative"></div>
+<div id="root" class="w-full h-full bg-white overflow-hidden flex flex-col relative">
+  <div class="boot-loader"><div class="boot-loader__ring"></div><p class="boot-loader__label">Perda<span>Zero</span></p></div>
+</div>
 
 <script>
 // Recovery detection - runs immediately before React
@@ -208,6 +227,8 @@ function App() {
   const [qrImagemModal, setQrImagemModal] = useState(null);
   const [qrImagemNome, setQrImagemNome] = useState('');
   const [fotoModal, setFotoModal] = useState(null);
+  const [toast, setToast] = useState(null); // {msg, tipo} — substitui alert()
+  const [confirmState, setConfirmState] = useState(null); // {msg, onConfirm} — substitui window.confirm()
   const [fotoUrls, setFotoUrls] = useState({}); // caminho salvo -> URL assinada (bucket é privado)
   const [todosRegistros, setTodosRegistros] = useState([]); // histórico completo da conta (sem o limite de 50 da lista), usado nos cálculos do painel
   const [copiedSlug, setCopiedSlug] = useState(null);
@@ -399,6 +420,17 @@ function App() {
     { id:6, nome:'Outro', icone:'➕', cor:'bg-gray-100 text-gray-600' },
   ];
 
+  // ==========================================
+  // NOTIFICAÇÕES NO ESTILO DO APP (substituem alert()/window.confirm())
+  // ==========================================
+  const notificar = (msg, tipo = 'info') => setToast({ msg, tipo, id: Date.now() });
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4200);
+    return () => clearTimeout(t);
+  }, [toast]);
+  const confirmarAcao = (msg, onConfirm, { perigoso = true } = {}) => setConfirmState({ msg, onConfirm, perigoso });
+
   const resetFlow = () => {
     setReg({ foto_arquivo:null, foto_url_local:null, produto:null, qtd:'', unidade:'un', motivo:null, observacao:'', custo_unitario:0, icone:'📦' });
     setCustomProd(''); setCustomEmoji('📦'); setBuscaProd(''); setQtdAlertaVisto(false);
@@ -451,7 +483,7 @@ function App() {
       || null;
 
     if (!contaId) {
-      alert('Erro: conta não identificada. Feche o app e tente novamente pelo QR Code.');
+      notificar('Erro: conta não identificada. Feche o app e tente novamente pelo QR Code.', 'erro');
       setIsUploading(false);
       return;
     }
@@ -485,9 +517,9 @@ function App() {
         p_custo_unitario: reg.custo_unitario,
         p_foto_path: fotoPath
       });
-      if (error) { alert('Erro ao salvar: ' + error.message); setIsUploading(false); return; }
+      if (error) { notificar('Erro ao salvar: ' + error.message, 'erro'); setIsUploading(false); return; }
       setIsUploading(false);
-      alert('✅ Perda registrada com sucesso!');
+      notificar('Perda registrada com sucesso!', 'sucesso');
       resetFlow();
       setFuncUser(null); setView('qr_select_user');
       return;
@@ -512,12 +544,12 @@ function App() {
     };
 
     const { data, error } = await supabase.from('historico').insert([obj]).select();
-    if (error) { alert('Erro ao salvar: ' + error.message); setIsUploading(false); return; }
+    if (error) { notificar('Erro ao salvar: ' + error.message, 'erro'); setIsUploading(false); return; }
     setHistorico([data[0], ...historico]);
     setTodosRegistros([data[0], ...todosRegistros]);
     assinarFotos([data[0]]);
     setIsUploading(false);
-    alert('✅ Perda registrada com sucesso!');
+    notificar('Perda registrada com sucesso!', 'sucesso');
     resetFlow();
     setView('dashboard');
   };
@@ -806,9 +838,34 @@ function App() {
     </div>
   );
 
+  // Notificação no estilo do app — substitui alert(). Fixa no topo da tela,
+  // some sozinha, e usa a cor certa (verde/vermelho/cinza) pro tipo de aviso.
+  const Toast = () => !toast ? null : (
+    <div key={toast.id} className={`fixed top-4 left-1/2 -translate-x-1/2 z-[70] max-w-[92%] px-5 py-3 rounded-2xl shadow-2xl font-bold text-sm text-white flex items-center gap-2 animate-slide-up ${toast.tipo==='erro' ? 'bg-red-500' : toast.tipo==='sucesso' ? 'bg-brand' : 'bg-slate-800'}`}>
+      <span className="shrink-0">{toast.tipo==='erro' ? '⚠️' : toast.tipo==='sucesso' ? '✅' : 'ℹ️'}</span>
+      <span>{toast.msg}</span>
+      <button onClick={() => setToast(null)} className="ml-1 text-white/70 shrink-0">✕</button>
+    </div>
+  );
+
+  // Confirmação no estilo do app — substitui window.confirm(). Ações "perigosas"
+  // (excluir) ganham o botão de confirmar em vermelho.
+  const ConfirmModal = () => !confirmState ? null : (
+    <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-center justify-center p-6 animate-fade-in">
+      <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+        <p className="text-slate-800 font-bold text-base mb-6 text-center leading-relaxed">{confirmState.msg}</p>
+        <div className="flex gap-3">
+          <button onClick={() => setConfirmState(null)} className="flex-1 py-3 rounded-2xl font-bold text-slate-500 bg-gray-100">Cancelar</button>
+          <button onClick={() => { const fn = confirmState.onConfirm; setConfirmState(null); fn(); }}
+            className={`flex-1 py-3 rounded-2xl font-bold text-white ${confirmState.perigoso ? 'bg-red-500' : 'bg-brand'}`}>Confirmar</button>
+        </div>
+      </div>
+    </div>
+  );
+
   const PhotoModal = () => !fotoModal ? null : (
     <div className="absolute inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-4 animate-fade-in">
-      <button onClick={() => setFotoModal(null)} className="absolute top-6 right-6 text-white bg-white/10 p-4 rounded-full"><Ico.Delete/></button>
+      <button onClick={() => setFotoModal(null)} aria-label="Fechar" title="Fechar" className="absolute top-6 right-6 text-white bg-white/10 p-4 rounded-full"><Ico.Delete/></button>
       <div className="bg-white p-2 rounded-2xl shadow-2xl w-full max-w-sm">
         <img src={fotoModal} className="w-full h-auto max-h-[60vh] object-cover rounded-xl" alt="Evidência" />
       </div>
@@ -926,7 +983,7 @@ function App() {
   if (qrImagemModal) {
     const salvarCartaz = async () => {
       const el = document.getElementById('qr-cartaz');
-      if (!el || !window.html2canvas) { alert('Aguarde carregar...'); return; }
+      if (!el || !window.html2canvas) { notificar('Aguarde carregar...', 'info'); return; }
       try {
         const canvas = await window.html2canvas(el, { scale: 3, useCORS: true, backgroundColor: '#ffffff' });
         canvas.toBlob(async (blob) => {
@@ -947,12 +1004,13 @@ function App() {
           }
         }, 'image/png');
       } catch(e) {
-        alert('Erro ao gerar imagem: ' + e.message);
+        notificar('Erro ao gerar imagem: ' + e.message, 'erro');
       }
     };
 
     return (
       <div className="flex-1 flex flex-col bg-slate-900 z-50 overflow-y-auto">
+        <Toast/>
         <div className="flex flex-col items-center justify-start p-6 min-h-full">
           <button onClick={() => setQrImagemModal(null)}
             className="self-end mb-4 text-slate-400 text-sm font-bold bg-slate-800 px-4 py-2 rounded-xl">
@@ -1047,6 +1105,7 @@ function App() {
 
     return (
       <div className="flex-1 flex flex-col bg-gray-50 animate-fade-in min-h-0">
+        <Toast/>
         <div className="bg-brand p-6 pt-10 pb-8 rounded-b-[40px] shadow-lg text-white text-center pt-safe flex-shrink-0">
           <LogoRede size={52} />
           <p className="text-green-100 text-sm font-bold tracking-widest uppercase mt-3">{nomeRede}</p>
@@ -1090,7 +1149,7 @@ function App() {
           {qrPinUser && (
             <div className="absolute inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-6 animate-fade-in">
               <div className="bg-white w-full max-w-sm rounded-[40px] p-8 flex flex-col items-center shadow-2xl">
-                <button onClick={() => setQrPinUser(null)} className="absolute top-8 left-8 text-slate-400"><Ico.Back/></button>
+                <button onClick={() => setQrPinUser(null)} aria-label="Voltar" title="Voltar" className="absolute top-8 left-8 text-slate-400"><Ico.Back/></button>
                 <div className="text-6xl mb-4 mt-2">{qrPinUser.avatar || '👤'}</div>
                 <h2 className="text-2xl font-bold text-slate-800 mb-1">Olá, {(qrPinUser.nome || '').split(' ')[0]}</h2>
                 <p className="text-slate-500 text-sm mb-6 font-medium">Digite seu PIN de acesso</p>
@@ -1109,7 +1168,7 @@ function App() {
                   ))}
                   <div></div>
                   <button disabled={qrPinChecando} onClick={() => digitarPin('0')} className="bg-gray-50 text-slate-800 text-2xl font-bold py-4 rounded-2xl active:bg-gray-200 disabled:opacity-50">0</button>
-                  <button disabled={qrPinChecando} onClick={() => setQrPinAttempt(qrPinAttempt.slice(0,-1))} className="bg-red-50 text-red-500 py-4 rounded-2xl flex items-center justify-center active:bg-red-100 disabled:opacity-50"><Ico.Delete/></button>
+                  <button disabled={qrPinChecando} onClick={() => setQrPinAttempt(qrPinAttempt.slice(0,-1))} aria-label="Apagar dígito" title="Apagar dígito" className="bg-red-50 text-red-500 py-4 rounded-2xl flex items-center justify-center active:bg-red-100 disabled:opacity-50"><Ico.Delete/></button>
                 </div>
               </div>
             </div>
@@ -1152,9 +1211,11 @@ function App() {
 
     return (
       <div className="flex-1 flex flex-col bg-white min-h-0">
+        <Toast/>
+        <ConfirmModal/>
         {/* Header */}
         <div className="p-4 border-b flex items-center shadow-sm z-10 pt-safe shrink-0">
-          <button onClick={voltarFlow} className="p-2 text-slate-500"><Ico.Back/></button>
+          <button onClick={voltarFlow} aria-label="Voltar" title="Voltar" className="p-2 text-slate-500"><Ico.Back/></button>
           <div className="flex-1 text-center">
             <p className="font-bold text-slate-400 text-xs tracking-widest">PASSO {flowStep} DE 5</p>
             {isQRFlow && <p className="text-[10px] text-brand font-bold">{funcUser?.nome?.split(' ')[0]} • {lojaQR?.nome}</p>}
@@ -1166,7 +1227,7 @@ function App() {
         {flowStep === 1 && (
           <div className="flex-1 flex flex-col animate-slide-up bg-gray-50 min-h-0">
             <div className="flex-1 overflow-y-auto hide-scrollbar flex flex-col items-center p-6">
-              <h3 className="text-2xl font-bold text-slate-800 mb-8 shrink-0">📸 Foto da Perda</h3>
+              <h3 className="text-2xl font-bold text-slate-800 mb-8 shrink-0 flex items-center gap-2"><Ico.Camera size={22}/> Foto da Perda</h3>
               {reg.foto_url_local ? (
                 <div className="w-full max-w-xs relative mb-8 rounded-2xl overflow-hidden shadow-lg border-4 border-brand shrink-0">
                   <img src={reg.foto_url_local} className="w-full h-48 object-cover" alt="foto"/>
@@ -1288,7 +1349,7 @@ function App() {
                 ))}
                 <button onClick={() => { if (!reg.qtd.includes(',')) setReg({...reg,qtd:reg.qtd+','}); }} className="bg-white border border-gray-200 text-2xl font-bold py-3 rounded-2xl active:bg-gray-100 shadow-sm">,</button>
                 <button onClick={() => setReg({...reg,qtd:reg.qtd+'0'})} className="bg-white border border-gray-200 text-2xl font-bold py-3 rounded-2xl active:bg-gray-100 shadow-sm">0</button>
-                <button onClick={() => setReg({...reg,qtd:reg.qtd.slice(0,-1)})} className="bg-red-50 border border-red-100 text-red-500 py-3 rounded-2xl flex justify-center items-center shadow-sm active:bg-red-100"><Ico.Delete/></button>
+                <button onClick={() => setReg({...reg,qtd:reg.qtd.slice(0,-1)})} aria-label="Apagar dígito" title="Apagar dígito" className="bg-red-50 border border-red-100 text-red-500 py-3 rounded-2xl flex justify-center items-center shadow-sm active:bg-red-100"><Ico.Delete/></button>
               </div>
             </div>
             {(() => {
@@ -1313,7 +1374,7 @@ function App() {
                 const bloqueado = qtdNum > limite && !qtdAlertaVisto;
                 return (
                   <button onClick={() => setFlowStep(4)} disabled={!reg.qtd || bloqueado}
-                    className={reg.qtd && !bloqueado ? 'w-full max-w-xs py-4 rounded-2xl font-bold text-white text-lg bg-brand shadow-lg' : 'w-full max-w-xs py-4 rounded-2xl font-bold text-white text-lg bg-gray-300'}>AVANCAR</button>
+                    className={reg.qtd && !bloqueado ? 'w-full max-w-xs py-4 rounded-2xl font-bold text-white text-lg bg-brand shadow-lg' : 'w-full max-w-xs py-4 rounded-2xl font-bold text-white text-lg bg-gray-300'}>Avançar</button>
                 );
               })()}
             </div>
@@ -1437,11 +1498,13 @@ function App() {
     dadosCompletos.forEach(i => { rankProd[i.prod] = (rankProd[i.prod]||0)+(i.custo_total||0); });
     const topProd = Object.entries(rankProd).sort((a,b)=>b[1]-a[1]).slice(0,3);
 
-    const handleDelete = async (id) => {
-      if (!window.confirm('Excluir este registro permanentemente?')) return;
-      if (supabase) { await supabase.from('historico').delete().eq('id', id); }
-      setHistorico(historico.filter(h => h.id !== id));
-      setTodosRegistros(todosRegistros.filter(h => h.id !== id));
+    const handleDelete = (id) => {
+      confirmarAcao('Excluir este registro permanentemente? Essa ação não pode ser desfeita.', async () => {
+        if (supabase) { await supabase.from('historico').delete().eq('id', id); }
+        setHistorico(historico.filter(h => h.id !== id));
+        setTodosRegistros(todosRegistros.filter(h => h.id !== id));
+        notificar('Registro excluído.', 'sucesso');
+      });
     };
 
     return (
@@ -1554,6 +1617,8 @@ function App() {
         })()}
 
         <TrialBanner/>
+        <Toast/>
+        <ConfirmModal/>
         <div className="bg-slate-900 text-white p-5 flex flex-col shadow-md z-10 flex-shrink-0">
           <div className="flex justify-between items-center mb-3">
             <div>
@@ -1566,7 +1631,7 @@ function App() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                 PDF
               </button>
-              <button onClick={handleLogout} className="p-2 bg-slate-800 rounded-full"><Ico.Logout/></button>
+              <button onClick={handleLogout} aria-label="Sair" title="Sair" className="p-2 bg-slate-800 rounded-full"><Ico.Logout/></button>
             </div>
           </div>
 
@@ -1919,8 +1984,9 @@ function App() {
       if (!novaLojaNome.trim()) return;
       if (supabase) {
         const { data, error } = await supabase.from('lojas').insert([{ conta_id: conta.id, nome: novaLojaNome }]).select();
-        if (error) return alert('Erro: ' + error.message);
+        if (error) return notificar('Erro: ' + error.message, 'erro');
         setLojas([...lojas, data[0]]);
+        notificar('Unidade cadastrada!', 'sucesso');
       }
       setNovaLojaNome('');
     };
@@ -1931,11 +1997,13 @@ function App() {
       setEditingLojaId(null);
     };
 
-    const deleteLoja = async (id) => {
-      if (!window.confirm('Excluir esta unidade?')) return;
-      if (supabase) { await supabase.from('lojas').delete().eq('id', id); }
-      setLojas(lojas.filter(l => l.id !== id));
-      setEditingLojaId(null);
+    const deleteLoja = (id) => {
+      confirmarAcao('Excluir esta unidade? Isso também remove a equipe e o histórico ligados a ela.', async () => {
+        if (supabase) { await supabase.from('lojas').delete().eq('id', id); }
+        setLojas(lojas.filter(l => l.id !== id));
+        setEditingLojaId(null);
+        notificar('Unidade excluída.', 'sucesso');
+      });
     };
 
     const copiarURL = (slug) => {
@@ -1982,6 +2050,8 @@ function App() {
     return (
       <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0"><Sidebar/><div className="dsk-main flex-1 flex flex-col h-full min-h-0 pt-safe pb-safe overflow-hidden">
         <TrialBanner/>
+        <Toast/>
+        <ConfirmModal/>
         <div className="bg-slate-900 text-white p-6 shadow-md z-10 flex-shrink-0">
           <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
           <h2 className="text-2xl font-bold">Unidades + QR Codes</h2>
@@ -2004,7 +2074,7 @@ function App() {
                     <input value={editLoja.nome} onChange={e => setEditLoja({...editLoja,nome:e.target.value})}
                       className="w-full font-bold text-slate-700 mb-3 border-b focus:border-brand focus:outline-none p-1"/>
                     <div className="flex justify-between">
-                      <button onClick={() => deleteLoja(l.id)} className="bg-red-50 text-red-500 p-2 rounded-lg"><Ico.Delete/></button>
+                      <button onClick={() => deleteLoja(l.id)} aria-label="Excluir unidade" title="Excluir unidade" className="bg-red-50 text-red-500 p-2 rounded-lg"><Ico.Delete/></button>
                       <button onClick={() => saveLoja(l.id)} className="bg-brand text-white py-2 px-6 rounded-lg font-bold text-xs">Salvar</button>
                     </div>
                   </div>
@@ -2015,7 +2085,7 @@ function App() {
                         <p className="font-bold text-slate-800">🏪 {l.nome}</p>
                         <p className="text-[10px] text-slate-400 font-mono mt-0.5">slug: {l.slug_acesso}</p>
                       </div>
-                      <button onClick={() => { setEditingLojaId(l.id); setEditLoja({nome:l.nome}); }} className="text-slate-400 hover:text-brand p-2 bg-gray-50 rounded-full"><Ico.Edit/></button>
+                      <button onClick={() => { setEditingLojaId(l.id); setEditLoja({nome:l.nome}); }} aria-label="Editar unidade" title="Editar unidade" className="text-slate-400 hover:text-brand p-2 bg-gray-50 rounded-full"><Ico.Edit/></button>
                     </div>
 
                     {/* QR CODE SECTION */}
@@ -2059,8 +2129,9 @@ function App() {
       const obj = { conta_id: conta.id, nome: novoProdNome, icone: novoProdEmoji || '📦', custo, unidade: novoProdUnidade || 'un' };
       if (supabase) {
         const { data, error } = await supabase.from('produtos').insert([obj]).select();
-        if (error) return alert('Erro: ' + error.message);
+        if (error) return notificar('Erro: ' + error.message, 'erro');
         setProdutos([data[0], ...produtos]);
+        notificar('Produto cadastrado!', 'sucesso');
       }
       setNovoProdNome(''); setNovoProdEmoji('📦'); setNovoProdCusto(''); setNovoProdUnidade('un');
     };
@@ -2073,16 +2144,20 @@ function App() {
       setEditingProdId(null);
     };
 
-    const deleteProd = async (id) => {
-      if (!window.confirm('Excluir?')) return;
-      if (supabase) { await supabase.from('produtos').delete().eq('id', id); }
-      setProdutos(produtos.filter(p => p.id !== id));
-      setEditingProdId(null);
+    const deleteProd = (id) => {
+      confirmarAcao('Excluir este produto do cardápio de perdas?', async () => {
+        if (supabase) { await supabase.from('produtos').delete().eq('id', id); }
+        setProdutos(produtos.filter(p => p.id !== id));
+        setEditingProdId(null);
+        notificar('Produto excluído.', 'sucesso');
+      });
     };
 
     return (
       <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0"><Sidebar/><div className="dsk-main flex-1 flex flex-col h-full min-h-0 pt-safe pb-safe overflow-hidden">
         <TrialBanner/>
+        <Toast/>
+        <ConfirmModal/>
         <div className="bg-slate-900 text-white p-6 shadow-md flex-shrink-0">
           <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
           <h2 className="text-2xl font-bold">Cardápio de Perdas</h2>
@@ -2125,13 +2200,13 @@ function App() {
                   </select>
                 </div>
                 <div className="flex justify-between mt-auto">
-                  <button onClick={() => deleteProd(p.id)} className="bg-red-50 text-red-500 p-2 rounded-lg"><Ico.Delete/></button>
+                  <button onClick={() => deleteProd(p.id)} aria-label="Excluir produto" title="Excluir produto" className="bg-red-50 text-red-500 p-2 rounded-lg"><Ico.Delete/></button>
                   <button onClick={() => saveProd(p.id)} className="bg-brand text-white p-2 rounded-lg font-bold text-xs px-4">Salvar</button>
                 </div>
               </div>
             ) : (
               <div key={p.id} className="bg-white border border-gray-100 p-4 pt-8 rounded-2xl flex flex-col items-center shadow-sm relative">
-                <button onClick={() => { setEditingProdId(p.id); setEditProd({nome:p.nome,icone:p.icone,custo:p.custo?.toString().replace('.',',')||'',unidade:p.unidade||'un'}); }} className="absolute top-2 right-2 text-slate-400 p-2 bg-gray-50 rounded-full shadow-sm hover:text-brand"><Ico.Edit/></button>
+                <button onClick={() => { setEditingProdId(p.id); setEditProd({nome:p.nome,icone:p.icone,custo:p.custo?.toString().replace('.',',')||'',unidade:p.unidade||'un'}); }} aria-label="Editar produto" title="Editar produto" className="absolute top-2 right-2 text-slate-400 p-2 bg-gray-50 rounded-full shadow-sm hover:text-brand"><Ico.Edit/></button>
                 <span className="text-4xl bg-gray-50 p-3 rounded-2xl mb-2 shadow-inner">{p.icone}</span>
                 <span className="font-bold text-slate-700 text-sm text-center leading-tight mb-1">{p.nome}</span>
                 {p.custo > 0
@@ -2159,30 +2234,35 @@ function App() {
       const obj = { conta_id: conta.id, loja_id: lojaId, nome: novoMemNome, funcao: novoMemFuncao, codigo: novoMemFuncao==='operacional'?'':novoMemCodigo, avatar: novoMemAvatar };
       if (supabase) {
         const { data, error } = await supabase.from('equipe').insert([obj]).select();
-        if (error) return alert('Erro ao salvar: ' + error.message);
+        if (error) return notificar('Erro ao salvar: ' + error.message, 'erro');
         setEquipe([...equipe, data[0]]);
+        notificar('Colaborador cadastrado!', 'sucesso');
       }
       setNovoMemNome(''); setNovoMemCodigo(''); setNovoMemAvatar('👨‍🍳'); setNovoMemLoja('');
     };
 
     const saveMem = async (id) => {
-      if (editMem.funcao !== 'operacional' && editMem.codigo?.length !== 4) return alert('PIN deve ter 4 dígitos.');
+      if (editMem.funcao !== 'operacional' && editMem.codigo?.length !== 4) return notificar('PIN deve ter 4 dígitos.', 'erro');
       const obj = { nome: editMem.nome, funcao: editMem.funcao, codigo: editMem.funcao==='operacional'?'':editMem.codigo, avatar: editMem.avatar };
       if (supabase) { await supabase.from('equipe').update(obj).eq('id', id); }
       setEquipe(equipe.map(m => m.id===id?{...m,...obj}:m));
       setEditingMemId(null);
     };
 
-    const deleteMem = async (id) => {
-      if (!window.confirm('Remover colaborador?')) return;
-      if (supabase) { await supabase.from('equipe').delete().eq('id', id); }
-      setEquipe(equipe.filter(m => m.id !== id));
-      setEditingMemId(null);
+    const deleteMem = (id) => {
+      confirmarAcao('Remover este colaborador?', async () => {
+        if (supabase) { await supabase.from('equipe').delete().eq('id', id); }
+        setEquipe(equipe.filter(m => m.id !== id));
+        setEditingMemId(null);
+        notificar('Colaborador removido.', 'sucesso');
+      });
     };
 
     return (
       <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0"><Sidebar/><div className="dsk-main flex-1 flex flex-col h-full min-h-0 pt-safe pb-safe overflow-hidden">
         <TrialBanner/>
+        <Toast/>
+        <ConfirmModal/>
         <div className="bg-slate-900 text-white p-6 shadow-md flex-shrink-0">
           <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
           <h2 className="text-2xl font-bold">Equipe Ativa</h2>
@@ -2252,7 +2332,7 @@ function App() {
                         </select>
                       </div>
                       <div className="flex justify-between">
-                        <button onClick={() => deleteMem(m.id)} className="bg-red-50 text-red-500 p-2 rounded-lg"><Ico.Delete/></button>
+                        <button onClick={() => deleteMem(m.id)} aria-label="Excluir colaborador" title="Excluir colaborador" className="bg-red-50 text-red-500 p-2 rounded-lg"><Ico.Delete/></button>
                         <button onClick={() => saveMem(m.id)} className="bg-brand text-white py-2 px-6 rounded-lg font-bold text-xs">Salvar</button>
                       </div>
                     </div>
@@ -2266,7 +2346,7 @@ function App() {
                           {m.funcao === 'operacional' ? 'Sem senha' : <>PIN: <span className="bg-gray-100 px-1 rounded font-mono">{m.codigo}</span></>}
                         </p>
                       </div>
-                      <button onClick={() => { setEditingMemId(m.id); setEditMem({nome:m.nome,funcao:m.funcao,codigo:m.codigo||'',avatar:m.avatar||'👨‍🍳'}); }} className="text-slate-400 hover:text-brand p-3 bg-gray-50 rounded-full shadow-sm"><Ico.Edit/></button>
+                      <button onClick={() => { setEditingMemId(m.id); setEditMem({nome:m.nome,funcao:m.funcao,codigo:m.codigo||'',avatar:m.avatar||'👨‍🍳'}); }} aria-label="Editar colaborador" title="Editar colaborador" className="text-slate-400 hover:text-brand p-3 bg-gray-50 rounded-full shadow-sm"><Ico.Edit/></button>
                     </div>
                   ))}
                 </div>
@@ -2286,17 +2366,19 @@ function App() {
     const saveSettings = async () => {
       if (supabase) {
         const { error } = await supabase.from('contas').update({ nome_rede: settNome, logo_rede: settLogo }).eq('id', conta.id);
-        if (error) return alert('Erro: ' + error.message);
+        if (error) return notificar('Erro: ' + error.message, 'erro');
         await supabase.auth.updateUser({ data: { nome_rede: settNome } });
       }
       setConta({...conta, nome_rede: settNome, logo_rede: settLogo});
-      alert('✅ Configurações salvas!');
+      notificar('Configurações salvas!', 'sucesso');
       setView('dashboard');
     };
 
     return (
       <div className="flex-1 flex bg-gray-100 animate-slide-up h-full relative min-h-0"><Sidebar/><div className="dsk-main flex-1 flex flex-col h-full min-h-0 pt-safe pb-safe overflow-hidden">
         <TrialBanner/>
+        <Toast/>
+        <ConfirmModal/>
         <div className="bg-slate-900 text-white p-6 shadow-md flex-shrink-0">
           <p className="text-brand text-xs font-bold tracking-widest mb-1">CONFIGURAÇÕES</p>
           <h2 className="text-2xl font-bold">Ajustes da Conta</h2>
@@ -2447,9 +2529,37 @@ function TelaAuth({ supabase }) {
     : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>;
 
   return (
-    <div className="flex-1 flex flex-col p-6 bg-slate-900 justify-center items-center animate-fade-in overflow-y-auto hide-scrollbar">
+    <div className="flex-1 flex flex-col lg:flex-row bg-slate-900 animate-fade-in overflow-y-auto hide-scrollbar">
+      {/* Painel de marca — só existe em telas largas (desktop). No celular a tela
+          de login é só o formulário; aqui, no computador, ela ganha um layout
+          de verdade em vez do mesmo cartão estreito boiando no fundo preto. */}
+      <div className="hidden lg:flex flex-1 flex-col justify-center px-16 relative overflow-hidden bg-gradient-to-br from-slate-900 to-emerald-950 border-r border-slate-800">
+        <div className="absolute -right-24 -top-24 w-96 h-96 bg-brand/10 rounded-full blur-3xl"/>
+        <div className="absolute -left-16 bottom-0 w-72 h-72 bg-brand/5 rounded-full blur-3xl"/>
+        <div className="relative">
+          <div className="w-16 h-16 bg-brand rounded-2xl flex items-center justify-center mb-8 shadow-2xl">
+            <div className="text-white w-8 h-8"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="100%" height="100%"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          </div>
+          <h1 className="text-5xl font-extrabold text-white tracking-tight mb-4">Perda<span className="text-brand">Zero</span></h1>
+          <p className="text-slate-300 text-lg max-w-md mb-10">Gestão de desperdício para redes de alimentação. Sua equipe registra em segundos pelo celular, sem senha — você acompanha o prejuízo em tempo real.</p>
+          <div className="space-y-5">
+            {[
+              ['📸', 'Auditoria visual em cada registro'],
+              ['🏪', 'Uma cozinha, um QR Code — sem app pra instalar'],
+              ['📊', 'Relatório de prejuízo pronto em PDF'],
+            ].map(([ico, texto]) => (
+              <div key={texto} className="flex items-center gap-3">
+                <span className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-xl shrink-0">{ico}</span>
+                <span className="text-slate-300 text-sm font-medium">{texto}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col p-6 justify-center items-center">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-10">
+        <div className="text-center mb-10 lg:hidden">
           <div className="w-20 h-20 bg-brand rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-2xl">
             <div className="text-white w-10 h-10"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="100%" height="100%"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
           </div>
@@ -2510,6 +2620,7 @@ function TelaAuth({ supabase }) {
             20 dias grátis, sem cartão. Após o trial, planos a partir de R$ 49/mês.
           </p>
         )}
+      </div>
       </div>
     </div>
   );

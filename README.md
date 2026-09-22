@@ -45,22 +45,23 @@ O projeto foi construído para ser leve, não necessitando de um processo comple
 
 Este projeto utiliza o **Supabase** como cérebro de dados. Para rodá-lo, você precisará de uma conta gratuita no Supabase.
 
+> ⚠️ **O schema é multi-tenant** (várias empresas/redes no mesmo banco, isoladas por
+> Row Level Security) e o fluxo de QR Code (sem login) passa inteiro por três funções
+> `SECURITY DEFINER` no banco — nenhuma tabela é lida ou escrita diretamente pelo
+> visitante anônimo. Isso é essencial: sem RLS correto, os dados de uma conta ficam
+> visíveis para as outras.
+
 ### 1. Configuração do Banco de Dados (Supabase)
 1. Crie um novo projeto no [Supabase](https://supabase.com/).
-2. Vá até a seção **SQL Editor** e execute o seguinte script para criar a estrutura e inserir dados de exemplo:
+2. Vá até a seção **SQL Editor** e rode o conteúdo de [`supabase/schema.sql`](supabase/schema.sql) — ele cria tabelas, políticas de RLS, funções e o bucket de fotos, tudo do zero, num projeto vazio.
+3. Em **Authentication → URL Configuration**, defina a Site URL como a URL onde o `index.html` vai ficar publicado, e adicione a mesma URL (com `/recuperar-senha.html`) em Redirect URLs.
+4. Copie a **Project URL** e a chave **anon/public** (Settings → API) para as constantes `SUPABASE_URL`/`SUPABASE_KEY` no topo do `index.html`. Publicar a chave `anon` no código é esperado e seguro neste projeto — quem protege os dados é o RLS do passo 2, não o sigilo da chave.
 
-```sql
--- Limpeza (Atenção em produção!)
-DROP TABLE IF EXISTS historico CASCADE;
-DROP TABLE IF EXISTS equipe CASCADE;
-DROP TABLE IF EXISTS produtos CASCADE;
-DROP TABLE IF EXISTS lojas CASCADE;
+---
 
--- Criação das Tabelas
-CREATE TABLE lojas (id serial primary key, nome text not null);
-CREATE TABLE equipe (id serial primary key, nome text not null, loja_id int references lojas(id), funcao text not null, codigo text, avatar text);
-CREATE TABLE produtos (id serial primary key, nome text not null, icone text, custo numeric);
-CREATE TABLE historico (id serial primary key, loja_id int references lojas(id), relator text, responsavel text, prod text, qtd numeric, uni text, motivo text, observacao text, hora text, img text, custo_total numeric, foto_url text, timestamp numeric, created_at timestamp with time zone default timezone('utc'::text, now()) not null);
+## 🔒 Segurança
 
--- Dados Iniciais (Admin Padrão)
-INSERT INTO equipe (nome, loja_id, funcao, codigo, avatar) VALUES ('Admin', null, 'admin', '9999', '🛡️');
+- **RLS liga tudo:** nenhuma tabela é acessível sem passar pela política `conta_id = minha_conta_id()`. Um dono só enxerga a própria conta.
+- **Fluxo do QR Code (sem login)** não lê tabela nenhuma direto — usa três funções `SECURITY DEFINER`: `qr_contexto_loja`, `qr_verificar_pin` e `qr_registrar_perda`. O PIN do funcionário (`equipe.codigo`) nunca é devolvido ao navegador; `qr_verificar_pin` só responde `true`/`false`.
+- **Fotos de evidência** ficam num bucket privado (`fotos_perdas`), com limite de 5 MB e só imagem. A URL de cada foto é assinada na hora, válida por 1h, e só o dono autenticado da conta consegue gerar essa URL.
+- **Plano/trial** não pode ser alterado pelo próprio cliente: um gatilho no banco (`protege_colunas_plano`) reverte qualquer tentativa que não venha do `service_role`.

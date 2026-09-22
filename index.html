@@ -209,6 +209,7 @@ function App() {
   const [qrImagemNome, setQrImagemNome] = useState('');
   const [fotoModal, setFotoModal] = useState(null);
   const [fotoUrls, setFotoUrls] = useState({}); // caminho salvo -> URL assinada (bucket é privado)
+  const [todosRegistros, setTodosRegistros] = useState([]); // histórico completo da conta (sem o limite de 50 da lista), usado nos cálculos do painel
   const [copiedSlug, setCopiedSlug] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -324,6 +325,15 @@ function App() {
     setFotoUrls(prev => ({ ...prev, ...novasUrls }));
   };
 
+  // Métricas do painel (meta mensal, comparativo semanal, ranking, insights) precisam
+  // de TODO o histórico da conta, não só dos 50 registros mais recentes da lista —
+  // senão o prejuízo do mês aparece menor do que é de verdade quando há mais de 50 registros.
+  const carregarTodosRegistros = async (conta_id) => {
+    if (!supabase) return;
+    const { data } = await supabase.from('historico').select('*').eq('conta_id', conta_id).order('timestamp', { ascending: false }).limit(5000);
+    if (data) setTodosRegistros(data);
+  };
+
   const carregarDados = async (conta_id, limite = 50) => {
     if (!supabase) return;
     const [lojasRes, equipeRes, prodRes, histRes] = await Promise.all([
@@ -332,6 +342,7 @@ function App() {
       supabase.from('produtos').select('*').eq('conta_id', conta_id).order('nome'),
       supabase.from('historico').select('*').eq('conta_id', conta_id).order('timestamp', { ascending: false }).limit(limite),
     ]);
+    carregarTodosRegistros(conta_id);
     if (lojasRes.data) setLojas(lojasRes.data);
     if (equipeRes.data) setEquipe(equipeRes.data);
     if (prodRes.data) setProdutos(prodRes.data);
@@ -397,7 +408,9 @@ function App() {
     setFlowStep(1);
   };
 
-  const getDadosFiltrados = () => historico.filter(item => {
+  // Aceita uma lista opcional: por padrão filtra a lista paginada (auditoria),
+  // mas os cálculos do painel passam `registrosCompletos` (histórico inteiro da conta).
+  const getDadosFiltrados = (lista = historico) => lista.filter(item => {
     if (filtroLoja !== 'todas' && item.loja_id !== parseInt(filtroLoja)) return false;
     const d = new Date(item.timestamp);
     if (filtroMesEsp) {
@@ -407,12 +420,17 @@ function App() {
     const hoje = new Date();
     const diffDias = (new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000;
     if (filtroTempo === 'hoje') return diffDias === 0;
-    if (filtroTempo === 'semana') return diffDias <= 7;
-    if (filtroTempo === 'mes') return diffDias <= 30;
+    // "hoje" conta como 1 dos 7/30 dias — por isso <=6 e <=29 (senão vira 8 e 31 dias)
+    if (filtroTempo === 'semana') return diffDias <= 6;
+    if (filtroTempo === 'mes') return diffDias <= 29;
     return true;
   });
 
-  const mesesDisponiveis = [...new Set(historico.map(item => {
+  // Histórico completo da conta, com fallback pros 50 já carregados enquanto o
+  // carregamento completo (carregarTodosRegistros) ainda não voltou.
+  const registrosCompletos = todosRegistros.length ? todosRegistros : historico;
+
+  const mesesDisponiveis = [...new Set(registrosCompletos.map(item => {
     const d = new Date(item.timestamp);
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
   }))].sort().reverse();
@@ -496,6 +514,7 @@ function App() {
     const { data, error } = await supabase.from('historico').insert([obj]).select();
     if (error) { alert('Erro ao salvar: ' + error.message); setIsUploading(false); return; }
     setHistorico([data[0], ...historico]);
+    setTodosRegistros([data[0], ...todosRegistros]);
     assinarFotos([data[0]]);
     setIsUploading(false);
     alert('✅ Perda registrada com sucesso!');
@@ -511,8 +530,13 @@ function App() {
   }, [view, perfil, lojas.length]);
 
   // Exportar PDF — relatório rico com gráficos
+  // Escapa texto livre (produto/motivo digitados por qualquer um pelo QR, sem login)
+  // antes de colocar dentro do HTML do relatório — sem isso, um "produto" como
+  // <img src=x onerror=...> executaria script na janela do relatório do gestor.
+  const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
   const exportarPDF = () => {
-    const dados = getDadosFiltrados();
+    const dados = getDadosFiltrados(registrosCompletos);
     const totalPrej = dados.reduce((acc,c) => acc+(c.custo_total||0), 0);
     const periodo = filtroMesEsp ? nomeMes(filtroMesEsp) : filtroTempo === 'hoje' ? 'Hoje' : filtroTempo === 'semana' ? 'Ultimos 7 dias' : 'Ultimos 30 dias';
     const lojaLabel = filtroLoja === 'todas' ? 'Todas as unidades' : (lojas.find(l=>l.id===parseInt(filtroLoja))?.nome || '');
@@ -532,17 +556,17 @@ function App() {
 
     // Linhas da tabela detalhada
     const linhas = dados.slice(0,50).map((item,idx) => {
-      const lojaItem = lojas.find(l=>l.id===item.loja_id)?.nome||'-';
+      const lojaItem = escapeHtml(lojas.find(l=>l.id===item.loja_id)?.nome||'-');
       const custo = (item.custo_total||0).toFixed(2).replace('.',',');
       const bg = idx%2===0 ? '#ffffff' : '#f8fafb';
-      return '<tr style="background:'+bg+'"><td>'+( item.img||'')+' '+(item.prod||'')+'</td><td>'+item.qtd+' '+item.uni+'</td><td>'+item.motivo+'</td><td>'+item.relator+'</td><td>'+item.responsavel+'</td><td>'+lojaItem+'</td><td style="color:#dc2626;font-weight:700">R$ '+custo+'</td></tr>';
+      return '<tr style="background:'+bg+'"><td>'+escapeHtml(item.img||'')+' '+escapeHtml(item.prod||'')+'</td><td>'+item.qtd+' '+escapeHtml(item.uni)+'</td><td>'+escapeHtml(item.motivo)+'</td><td>'+escapeHtml(item.relator)+'</td><td>'+escapeHtml(item.responsavel)+'</td><td>'+lojaItem+'</td><td style="color:#dc2626;font-weight:700">R$ '+custo+'</td></tr>';
     }).join('');
 
     // Barras de ranking (HTML puro, sem canvas)
     const barRow = (label, val, max, color) => {
       const pct = max > 0 ? Math.round(val/max*100) : 0;
       const fmtVal = 'R$ ' + val.toFixed(2).replace('.',',');
-      return '<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:12px;color:#374151;font-weight:600">'+label+'</span><span style="font-size:12px;color:'+color+';font-weight:700">'+fmtVal+'</span></div><div style="background:#e5e7eb;border-radius:4px;height:8px"><div style="background:'+color+';width:'+pct+'%;height:8px;border-radius:4px"></div></div></div>';
+      return '<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:12px;color:#374151;font-weight:600">'+escapeHtml(label)+'</span><span style="font-size:12px;color:'+color+';font-weight:700">'+fmtVal+'</span></div><div style="background:#e5e7eb;border-radius:4px;height:8px"><div style="background:'+color+';width:'+pct+'%;height:8px;border-radius:4px"></div></div></div>';
     };
 
     // Donut de motivos (SVG)
@@ -567,7 +591,7 @@ function App() {
       svgDonut += '<text x="'+cx+'" y="'+(cy+10)+'" text-anchor="middle" font-size="10" font-weight="bold" fill="#111827">R$'+Math.round(total).toString().replace(/\B(?=(\d{3})+(?!\d))/g,'.')+'</text>';
     }
 
-    const pag = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>'+nomeRede+' - Relatorio PerdaZero</title><style>'+
+    const pag = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>'+escapeHtml(nomeRede)+' - Relatorio PerdaZero</title><style>'+
       '*{box-sizing:border-box;margin:0;padding:0}'+
       'body{font-family:Arial,Helvetica,sans-serif;background:#f9fafb;color:#111827;font-size:12px}'+
       '@media print{body{background:#fff}@page{margin:15mm}}'+
@@ -605,8 +629,8 @@ function App() {
       (logo ? '<img src="'+logo+'" class="logo-img" alt="Logo"/>' : '<div class="logo-ph">🛡️</div>')+
       '<div class="header-info">'+
       '<div class="header-badge">Relatorio de Desperdicio</div>'+
-      '<div class="header-title">'+nomeRede+'</div>'+
-      '<div class="header-sub">'+lojaLabel+' &nbsp;|&nbsp; '+periodo+' &nbsp;|&nbsp; Gerado em '+dataGer+'</div>'+
+      '<div class="header-title">'+escapeHtml(nomeRede)+'</div>'+
+      '<div class="header-sub">'+escapeHtml(lojaLabel)+' &nbsp;|&nbsp; '+periodo+' &nbsp;|&nbsp; Gerado em '+dataGer+'</div>'+
       '</div>'+
       '<div class="header-total">'+
       '<div class="header-total-label">Prejuizo Total</div>'+
@@ -618,7 +642,7 @@ function App() {
       '<div class="kpis">'+
       '<div class="kpi"><div class="kpi-label">Total de Itens</div><div class="kpi-val">'+dados.length+'</div><div class="kpi-sub">registros</div></div>'+
       '<div class="kpi"><div class="kpi-label">Prejuizo Medio</div><div class="kpi-val">R$ '+(dados.length>0?(totalPrej/dados.length).toFixed(2).replace('.',','):'0,00')+'</div><div class="kpi-sub">por registro</div></div>'+
-      '<div class="kpi" style="border-left-color:#ef4444"><div class="kpi-label">Principal Motivo</div><div class="kpi-val" style="font-size:13px;color:#ef4444">'+(topMotivo[0]?topMotivo[0][0]:'-')+'</div><div class="kpi-sub">'+(totalPrej>0&&topMotivo[0]?Math.round(topMotivo[0][1]/totalPrej*100)+'% do total':'-')+'</div></div>'+
+      '<div class="kpi" style="border-left-color:#ef4444"><div class="kpi-label">Principal Motivo</div><div class="kpi-val" style="font-size:13px;color:#ef4444">'+(topMotivo[0]?escapeHtml(topMotivo[0][0]):'-')+'</div><div class="kpi-sub">'+(totalPrej>0&&topMotivo[0]?Math.round(topMotivo[0][1]/totalPrej*100)+'% do total':'-')+'</div></div>'+
       '</div>'+
 
       // GRAFICOS E RANKINGS
@@ -630,7 +654,7 @@ function App() {
       '<div style="display:flex;align-items:center;gap:16px">'+
       '<svg viewBox="0 0 160 160" width="140" height="140" style="flex-shrink:0">'+svgDonut+'</svg>'+
       '<div style="flex:1">'+topMotivo.slice(0,5).map(([label,val],i) =>
-        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><div style="width:10px;height:10px;border-radius:2px;background:'+cores[i%cores.length]+';flex-shrink:0"></div><span style="font-size:10px;color:#374151;flex:1">'+label+'</span><span style="font-size:10px;font-weight:700;color:#374151">'+Math.round((val/totalPrej||0)*100)+'%</span></div>'
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><div style="width:10px;height:10px;border-radius:2px;background:'+cores[i%cores.length]+';flex-shrink:0"></div><span style="font-size:10px;color:#374151;flex:1">'+escapeHtml(label)+'</span><span style="font-size:10px;font-weight:700;color:#374151">'+Math.round((val/totalPrej||0)*100)+'%</span></div>'
       ).join('')+'</div></div></div>'+
 
       // Top produtos
@@ -677,7 +701,7 @@ function App() {
   // ==========================================
   useEffect(() => {
     if (view !== 'dashboard') return;
-    const dados = getDadosFiltrados();
+    const dados = getDadosFiltrados(registrosCompletos);
     setTimeout(() => {
       if (chartBarRef.current) {
         if (chartBarInst.current) chartBarInst.current.destroy();
@@ -700,7 +724,7 @@ function App() {
         });
       }
     }, 100);
-  }, [view, filtroTempo, filtroMesEsp, filtroLoja, historico]);
+  }, [view, filtroTempo, filtroMesEsp, filtroLoja, historico, todosRegistros]);
 
   // ==========================================
   // COMPONENTES COMPARTILHADOS
@@ -1394,26 +1418,30 @@ function App() {
     );
   }
 
-  const dadosDash = getDadosFiltrados();
+  const dadosDash = getDadosFiltrados(); // lista paginada — usada na Auditoria Completa
 
   // ==========================================
   // DASHBOARD
   // ==========================================
   if (view === 'dashboard') {
-    const totalPrej = dadosDash.reduce((acc,c) => acc+(c.custo_total||0), 0);
+    // Todos os cálculos do painel usam o histórico COMPLETO da conta (registrosCompletos),
+    // não os 50 registros paginados — senão o prejuízo do mês aparece menor do que é.
+    const dadosCompletos = getDadosFiltrados(registrosCompletos);
+    const totalPrej = dadosCompletos.reduce((acc,c) => acc+(c.custo_total||0), 0);
 
     const rankResp = {};
-    dadosDash.forEach(i => { if (i.responsavel !== 'Não identificado') rankResp[i.responsavel] = (rankResp[i.responsavel]||0)+(i.custo_total||0); });
+    dadosCompletos.forEach(i => { if (i.responsavel !== 'Não identificado') rankResp[i.responsavel] = (rankResp[i.responsavel]||0)+(i.custo_total||0); });
     const topResp = Object.entries(rankResp).sort((a,b)=>b[1]-a[1]).slice(0,3);
 
     const rankProd = {};
-    dadosDash.forEach(i => { rankProd[i.prod] = (rankProd[i.prod]||0)+(i.custo_total||0); });
+    dadosCompletos.forEach(i => { rankProd[i.prod] = (rankProd[i.prod]||0)+(i.custo_total||0); });
     const topProd = Object.entries(rankProd).sort((a,b)=>b[1]-a[1]).slice(0,3);
 
     const handleDelete = async (id) => {
       if (!window.confirm('Excluir este registro permanentemente?')) return;
       if (supabase) { await supabase.from('historico').delete().eq('id', id); }
       setHistorico(historico.filter(h => h.id !== id));
+      setTodosRegistros(todosRegistros.filter(h => h.id !== id));
     };
 
     return (
@@ -1592,7 +1620,7 @@ function App() {
           {(() => {
             const hoje = new Date();
             const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`;
-            const totalMes = historico.filter(item => {
+            const totalMes = registrosCompletos.filter(item => {
               const d = new Date(item.timestamp);
               const m = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
               return m === mesAtual;
@@ -1644,7 +1672,7 @@ function App() {
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-l-red-500">
               <p className="text-slate-400 text-[10px] font-bold tracking-wider uppercase mb-1">Itens Perdidos</p>
-              <p className="text-2xl font-black text-slate-800">{dadosDash.length}</p>
+              <p className="text-2xl font-black text-slate-800">{dadosCompletos.length}</p>
             </div>
             <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-l-brand">
               <p className="text-slate-400 text-[10px] font-bold tracking-wider uppercase mb-1">Prejuízo</p>
@@ -1657,8 +1685,8 @@ function App() {
             const agora = new Date();
             const inicioSemanaAtual = new Date(agora); inicioSemanaAtual.setDate(agora.getDate() - 7);
             const inicioSemanaAnterior = new Date(agora); inicioSemanaAnterior.setDate(agora.getDate() - 14);
-            const semanaAtual = historico.filter(i => new Date(i.timestamp) >= inicioSemanaAtual).reduce((a,c) => a+(c.custo_total||0),0);
-            const semanaAnterior = historico.filter(i => new Date(i.timestamp) >= inicioSemanaAnterior && new Date(i.timestamp) < inicioSemanaAtual).reduce((a,c) => a+(c.custo_total||0),0);
+            const semanaAtual = registrosCompletos.filter(i => new Date(i.timestamp) >= inicioSemanaAtual).reduce((a,c) => a+(c.custo_total||0),0);
+            const semanaAnterior = registrosCompletos.filter(i => new Date(i.timestamp) >= inicioSemanaAnterior && new Date(i.timestamp) < inicioSemanaAtual).reduce((a,c) => a+(c.custo_total||0),0);
             if (semanaAnterior === 0 && semanaAtual === 0) return null;
             const diff = semanaAnterior > 0 ? Math.round((semanaAtual - semanaAnterior) / semanaAnterior * 100) : null;
             const melhorou = diff !== null && diff < 0;
@@ -1689,13 +1717,13 @@ function App() {
           })()}
 
           {/* Insights */}
-          {dadosDash.length > 0 && (() => {
-            const porLoja = {}; dadosDash.forEach(i => { const n = lojas.find(l=>l.id===i.loja_id)?.nome||'?'; porLoja[n]=(porLoja[n]||0)+(i.custo_total||0); });
+          {dadosCompletos.length > 0 && (() => {
+            const porLoja = {}; dadosCompletos.forEach(i => { const n = lojas.find(l=>l.id===i.loja_id)?.nome||'?'; porLoja[n]=(porLoja[n]||0)+(i.custo_total||0); });
             const topLoja = Object.entries(porLoja).sort((a,b)=>b[1]-a[1])[0];
-            const porMotivo = {}; dadosDash.forEach(i => { porMotivo[i.motivo]=(porMotivo[i.motivo]||0)+(i.custo_total||0); });
+            const porMotivo = {}; dadosCompletos.forEach(i => { porMotivo[i.motivo]=(porMotivo[i.motivo]||0)+(i.custo_total||0); });
             const topMotivo = Object.entries(porMotivo).sort((a,b)=>b[1]-a[1])[0];
             const pct = totalPrej > 0 ? Math.round((topMotivo?.[1]||0)/totalPrej*100) : 0;
-            const porProd = {}; dadosDash.forEach(i => { porProd[i.prod]=(porProd[i.prod]||0)+(parseFloat(i.qtd)||0); });
+            const porProd = {}; dadosCompletos.forEach(i => { porProd[i.prod]=(porProd[i.prod]||0)+(parseFloat(i.qtd)||0); });
             const topProd = Object.entries(porProd).sort((a,b)=>b[1]-a[1])[0];
             return (
               <div className="bg-slate-900 rounded-2xl p-4 border border-slate-700">
@@ -1713,7 +1741,7 @@ function App() {
           {(() => {
             const hoje = new Date();
             const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-            const registrosMes = historico.filter(i => new Date(i.timestamp) >= inicioMes);
+            const registrosMes = registrosCompletos.filter(i => new Date(i.timestamp) >= inicioMes);
             if (registrosMes.length === 0) return null;
             const porFunc = {};
             registrosMes.forEach(i => {

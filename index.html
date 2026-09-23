@@ -239,6 +239,7 @@ function App() {
   const [novoProdEmoji, setNovoProdEmoji] = useState('📦');
   const [novoProdCusto, setNovoProdCusto] = useState('');
   const [novoProdUnidade, setNovoProdUnidade] = useState('un');
+  const [novoProdFoto, setNovoProdFoto] = useState(null); // foto real do produto — opcional
   const [editingProdId, setEditingProdId] = useState(null);
   const [editProd, setEditProd] = useState({});
 
@@ -303,6 +304,12 @@ function App() {
         setView('rec');
         return;
       }
+      // O Supabase renova o token sozinho, em segundo plano, toda vez que a aba
+      // volta a ficar visível (mesmo sem o usuário fazer nada). Sem esse filtro,
+      // isso recarregava tudo e jogava o gestor de volta pro painel no meio de
+      // qualquer coisa que ele estivesse fazendo — inclusive um registro em
+      // andamento. TOKEN_REFRESHED/USER_UPDATED não mudam a tela atual.
+      if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') return;
       if (session?.user) {
         carregarPerfil(session.user);
         return;
@@ -410,6 +417,26 @@ function App() {
   // ==========================================
   const emojiDict = { 'carne':'🥩','blend':'🥩','picanha':'🥩','bacon':'🥓','pao':'🍞','pão':'🍞','hamburguer':'🍔','burger':'🍔','batata':'🍟','frita':'🍟','cebola':'🧅','alface':'🥬','salada':'🥗','tomate':'🍅','queijo':'🧀','cheddar':'🧀','frango':'🍗','peixe':'🐟','ovo':'🥚','refri':'🥤','coca':'🥤','suco':'🧃' };
   const buscarEmoji = (txt) => { const l = txt.toLowerCase(); for (const [k,v] of Object.entries(emojiDict)) if (l.includes(k)) return v; return '📦'; };
+
+  // Comprime uma foto escolhida (logo da rede, foto de produto) pro tamanho
+  // máximo em pixels indicado e devolve um data URL JPEG, pronto pra salvar
+  // direto numa coluna text do banco — igual já era feito só pro logo.
+  const comprimirImagem = (file, aoTerminar, max = 300) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width, h = img.height;
+        if (w > h) { if (w > max) { h *= max / w; w = max; } } else { if (h > max) { w *= max / h; h = max; } }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        aoTerminar(canvas.toDataURL('image/jpeg', 0.8));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
 
   const motivosLista = [
     { id:1, nome:'Validade Expirada', icone:'📅', cor:'bg-orange-100 text-orange-600' },
@@ -1104,7 +1131,8 @@ function App() {
     };
 
     return (
-      <div className="flex-1 flex flex-col bg-gray-50 animate-fade-in min-h-0">
+      <div className="flex-1 flex flex-col lg:items-center lg:justify-center lg:bg-slate-200 lg:py-8 min-h-0">
+      <div className="flex-1 flex flex-col bg-gray-50 animate-fade-in min-h-0 lg:flex-none lg:w-full lg:max-w-sm lg:h-full lg:rounded-[2.5rem] lg:shadow-2xl lg:overflow-hidden lg:border-8 lg:border-slate-900 relative">
         <Toast/>
         <div className="bg-brand p-6 pt-10 pb-8 rounded-b-[40px] shadow-lg text-white text-center pt-safe flex-shrink-0">
           <LogoRede size={52} />
@@ -1175,6 +1203,7 @@ function App() {
           )}
         </div>
       </div>
+      </div>
     );
   }
 
@@ -1209,8 +1238,13 @@ function App() {
 
     const equipeDaLoja = isQRFlow ? equipe.filter(e => e.loja_id === lojaQR?.id) : equipe;
 
+    // Em telas largas (desktop), esse fluxo é pensado pro celular — em vez de
+    // esticar o conteúdo pelo monitor inteiro, ele fica num painel do tamanho
+    // de um celular, centralizado num fundo cinza, do mesmo jeito que a
+    // maioria dos apps mobile-first faz quando abertos no computador.
     return (
-      <div className="flex-1 flex flex-col bg-white min-h-0">
+      <div className="flex-1 flex flex-col lg:items-center lg:justify-center lg:bg-slate-200 lg:py-8 min-h-0">
+      <div className="flex-1 flex flex-col bg-white min-h-0 lg:flex-none lg:w-full lg:max-w-sm lg:h-full lg:rounded-[2.5rem] lg:shadow-2xl lg:overflow-hidden lg:border-8 lg:border-slate-900">
         <Toast/>
         <ConfirmModal/>
         {/* Header */}
@@ -1283,7 +1317,10 @@ function App() {
                 {produtos.filter(p => p.nome.toLowerCase().includes(buscaProd.toLowerCase())).map(p => (
                   <button key={p.id} onClick={() => { setReg({...reg,produto:p.nome,custo_unitario:p.custo||0,icone:p.icone,unidade:p.unidade||'un'}); setBuscaProd(''); setFlowStep(3); }}
                     className="bg-white border border-gray-200 p-4 rounded-2xl flex items-center shadow-sm active:border-brand active:bg-green-50 transition-colors">
-                    <span className="text-3xl mr-3">{p.icone}</span>
+                    {p.foto_url
+                      ? <img src={p.foto_url} className="w-10 h-10 object-cover rounded-xl mr-3 shrink-0"/>
+                      : <span className="text-3xl mr-3">{p.icone}</span>
+                    }
                     <div className="flex-1 min-w-0">
                       <span className="font-bold text-slate-700 text-sm block leading-tight truncate">{p.nome}</span>
                       {p.custo > 0 ? <span className="text-[10px] text-brand font-bold">{fmt(p.custo)}/{p.unidade||'un'}</span> : <span className="text-[10px] text-orange-400 font-bold">sem custo</span>}
@@ -1464,6 +1501,7 @@ function App() {
             </div>
           </div>
         )}
+      </div>
       </div>
     );
   }
@@ -2126,19 +2164,19 @@ function App() {
     const addProd = async () => {
       if (!novoProdNome.trim()) return;
       const custo = parseFloat(novoProdCusto.replace(',','.')) || 0;
-      const obj = { conta_id: conta.id, nome: novoProdNome, icone: novoProdEmoji || '📦', custo, unidade: novoProdUnidade || 'un' };
+      const obj = { conta_id: conta.id, nome: novoProdNome, icone: novoProdEmoji || '📦', custo, unidade: novoProdUnidade || 'un', foto_url: novoProdFoto };
       if (supabase) {
         const { data, error } = await supabase.from('produtos').insert([obj]).select();
         if (error) return notificar('Erro: ' + error.message, 'erro');
         setProdutos([data[0], ...produtos]);
         notificar('Produto cadastrado!', 'sucesso');
       }
-      setNovoProdNome(''); setNovoProdEmoji('📦'); setNovoProdCusto(''); setNovoProdUnidade('un');
+      setNovoProdNome(''); setNovoProdEmoji('📦'); setNovoProdCusto(''); setNovoProdUnidade('un'); setNovoProdFoto(null);
     };
 
     const saveProd = async (id) => {
       const custo = parseFloat((editProd.custo||'').toString().replace(',','.')) || 0;
-      const obj = { nome: editProd.nome, icone: editProd.icone || '📦', custo, unidade: editProd.unidade || 'un' };
+      const obj = { nome: editProd.nome, icone: editProd.icone || '📦', custo, unidade: editProd.unidade || 'un', foto_url: editProd.foto_url || null };
       if (supabase) { await supabase.from('produtos').update(obj).eq('id', id); }
       setProdutos(produtos.map(p => p.id===id?{...p,...obj}:p));
       setEditingProdId(null);
@@ -2171,6 +2209,18 @@ function App() {
               <input type="text" value={novoProdNome} onChange={e => { setNovoProdNome(e.target.value); setNovoProdEmoji(buscarEmoji(e.target.value)); }}
                 className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold text-slate-800 focus:border-brand focus:outline-none" placeholder="Nome do produto"/>
             </div>
+            {/* Foto real — opcional. Quando não é preenchida, o app continua usando
+                só o emoji acima, como sempre funcionou. */}
+            <div className="flex items-center gap-3 mb-3 bg-gray-50 border border-gray-200 rounded-xl p-2.5">
+              <div className="w-10 h-10 rounded-lg bg-white border border-gray-200 flex items-center justify-center overflow-hidden shrink-0">
+                {novoProdFoto ? <img src={novoProdFoto} className="w-full h-full object-cover"/> : <span className="text-slate-300 text-lg">🖼️</span>}
+              </div>
+              <label className="flex-1 text-slate-500 text-xs font-bold cursor-pointer">
+                Foto real do produto (opcional)
+                <input type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) comprimirImagem(e.target.files[0], setNovoProdFoto, 200); }}/>
+              </label>
+              {novoProdFoto && <button onClick={() => setNovoProdFoto(null)} className="text-red-400 text-[10px] font-bold shrink-0">Remover</button>}
+            </div>
             <div className="flex gap-2 mb-3">
               <input type="text" inputMode="decimal" value={novoProdCusto} onChange={e => setNovoProdCusto(e.target.value)}
                 className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold focus:border-brand focus:outline-none" placeholder="Custo (R$) — obrigatório"/>
@@ -2190,6 +2240,14 @@ function App() {
             {produtos.map(p => editingProdId===p.id ? (
               <div key={p.id} className="bg-white border-2 border-brand p-4 rounded-2xl flex flex-col shadow-lg">
                 <input value={editProd.icone} onChange={e => setEditProd({...editProd,icone:e.target.value})} maxLength="2" className="text-3xl bg-gray-50 p-2 rounded-xl mb-2 text-center border focus:outline-none"/>
+                <label className="flex items-center gap-2 mb-2 bg-gray-50 border rounded-lg p-1.5 cursor-pointer">
+                  <div className="w-7 h-7 rounded bg-white border overflow-hidden shrink-0 flex items-center justify-center">
+                    {editProd.foto_url ? <img src={editProd.foto_url} className="w-full h-full object-cover"/> : <span className="text-slate-300 text-xs">🖼️</span>}
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-bold flex-1">Foto real</span>
+                  {editProd.foto_url && <button type="button" onClick={e => { e.preventDefault(); setEditProd({...editProd, foto_url: null}); }} className="text-red-400 text-[9px] font-bold">Remover</button>}
+                  <input type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) comprimirImagem(e.target.files[0], url => setEditProd(p => ({...p, foto_url: url})), 200); }}/>
+                </label>
                 <input value={editProd.nome} onChange={e => setEditProd({...editProd,nome:e.target.value})} className="font-bold text-slate-700 text-sm text-center mb-2 border-b focus:outline-none"/>
                 <div className="flex gap-1 mb-2">
                   <input value={editProd.custo} onChange={e => setEditProd({...editProd,custo:e.target.value})} className="flex-1 text-xs text-brand font-bold text-center border-b focus:outline-none" placeholder="Custo R$"/>
@@ -2206,8 +2264,11 @@ function App() {
               </div>
             ) : (
               <div key={p.id} className="bg-white border border-gray-100 p-4 pt-8 rounded-2xl flex flex-col items-center shadow-sm relative">
-                <button onClick={() => { setEditingProdId(p.id); setEditProd({nome:p.nome,icone:p.icone,custo:p.custo?.toString().replace('.',',')||'',unidade:p.unidade||'un'}); }} aria-label="Editar produto" title="Editar produto" className="absolute top-2 right-2 text-slate-400 p-2 bg-gray-50 rounded-full shadow-sm hover:text-brand"><Ico.Edit/></button>
-                <span className="text-4xl bg-gray-50 p-3 rounded-2xl mb-2 shadow-inner">{p.icone}</span>
+                <button onClick={() => { setEditingProdId(p.id); setEditProd({nome:p.nome,icone:p.icone,custo:p.custo?.toString().replace('.',',')||'',unidade:p.unidade||'un',foto_url:p.foto_url||null}); }} aria-label="Editar produto" title="Editar produto" className="absolute top-2 right-2 text-slate-400 p-2 bg-gray-50 rounded-full shadow-sm hover:text-brand"><Ico.Edit/></button>
+                {p.foto_url
+                  ? <img src={p.foto_url} className="w-16 h-16 object-cover rounded-2xl mb-2 shadow-inner"/>
+                  : <span className="text-4xl bg-gray-50 p-3 rounded-2xl mb-2 shadow-inner">{p.icone}</span>
+                }
                 <span className="font-bold text-slate-700 text-sm text-center leading-tight mb-1">{p.nome}</span>
                 {p.custo > 0
                   ? <span className="text-[10px] bg-green-50 text-brand px-2 py-0.5 rounded font-bold">{fmt(p.custo)}/{p.unidade||'un'}</span>
@@ -2395,22 +2456,7 @@ function App() {
                 <label className="flex-1 bg-white border border-gray-200 text-slate-600 text-sm font-bold p-3 rounded-xl text-center cursor-pointer hover:bg-gray-50 shadow-sm">
                   Alterar Logo
                   <input type="file" accept="image/*" className="hidden" onChange={e => {
-                    if (e.target.files?.[0]) {
-                      const reader = new FileReader();
-                      reader.onload = (ev) => {
-                        const img = new Image();
-                        img.onload = () => {
-                          const canvas = document.createElement('canvas');
-                          const max = 300; let w = img.width, h = img.height;
-                          if (w > h) { if (w > max) { h *= max/w; w = max; } } else { if (h > max) { w *= max/h; h = max; } }
-                          canvas.width = w; canvas.height = h;
-                          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-                          setSettLogo(canvas.toDataURL('image/jpeg', 0.8));
-                        };
-                        img.src = ev.target.result;
-                      };
-                      reader.readAsDataURL(e.target.files[0]);
-                    }
+                    if (e.target.files?.[0]) comprimirImagem(e.target.files[0], setSettLogo);
                   }}/>
                 </label>
               </div>

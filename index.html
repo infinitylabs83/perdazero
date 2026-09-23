@@ -228,6 +228,7 @@ function App() {
   const [qrImagemNome, setQrImagemNome] = useState('');
   const [fotoModal, setFotoModal] = useState(null);
   const [gerandoCartaz, setGerandoCartaz] = useState(null); // 'png'|'pdf'|'share'|null — qual botão do cartaz do QR está processando
+  const [gerandoQrPara, setGerandoQrPara] = useState(null); // slug da loja cujo QR está sendo baixado/convertido, enquanto o cartaz não abre
   const [toast, setToast] = useState(null); // {msg, tipo} — substitui alert()
   const [confirmState, setConfirmState] = useState(null); // {msg, onConfirm} — substitui window.confirm()
   const [fotoUrls, setFotoUrls] = useState({}); // caminho salvo -> URL assinada (bucket é privado)
@@ -2099,11 +2100,31 @@ function App() {
       return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${url}`;
     };
 
-    const baixarQR = (slug, nome) => {
+    const baixarQR = async (slug, nome) => {
       const appUrl = APP_URL + '?loja=' + slug;
       const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=20&data=' + encodeURIComponent(appUrl);
-      setQrImagemModal(qrUrl);
       setQrImagemNome(nome);
+      setGerandoQrPara(slug);
+      // Baixa a imagem do QR e converte pra local (data:) ANTES de abrir o cartaz.
+      // Antes, o <img> apontava direto pro servidor externo com crossOrigin, e
+      // dependendo da ordem em que o navegador processava os atributos, o
+      // html2canvas "contaminava" o canvas sem avisar — o resto do cartaz saía
+      // certo, só a imagem do QR ficava em branco no PNG/PDF final. Com o QR já
+      // como data: local, essa captura fica sempre confiável.
+      try {
+        const resp = await fetch(qrUrl);
+        const blob = await resp.blob();
+        const dataUrl = await new Promise((res, rej) => {
+          const reader = new FileReader();
+          reader.onload = () => res(reader.result);
+          reader.onerror = rej;
+          reader.readAsDataURL(blob);
+        });
+        setQrImagemModal(dataUrl);
+      } catch (e) {
+        notificar('Não consegui gerar o QR agora. Tente de novo.', 'erro');
+      }
+      setGerandoQrPara(null);
     };
 
     return (
@@ -2155,9 +2176,9 @@ function App() {
                           <img src={getQRUrl(l.slug_acesso)} width="100" height="100" alt="QR Code" style={{display:'block'}} />
                         </div>
                         <div className="flex-1 space-y-2">
-                          <button onClick={() => baixarQR(l.slug_acesso, l.nome)}
-                            className="w-full bg-green-600 text-white text-xs font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform">
-                            ⬇️ Baixar para Imprimir
+                          <button onClick={() => baixarQR(l.slug_acesso, l.nome)} disabled={gerandoQrPara === l.slug_acesso}
+                            className="w-full bg-green-600 text-white text-xs font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform disabled:opacity-60">
+                            {gerandoQrPara === l.slug_acesso ? 'Gerando...' : '⬇️ Baixar para Imprimir'}
                           </button>
                           <button onClick={() => copiarURL(l.slug_acesso)}
                             className={`w-full text-xs font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-all ${copiedSlug===l.slug_acesso?'bg-green-100 text-green-700':'bg-gray-200 text-slate-600'}`}>

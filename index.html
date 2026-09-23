@@ -989,19 +989,114 @@ function App() {
       catch { return false; }
     })();
 
-    // Espera toda <img> dentro do elemento terminar de carregar antes de tirar
-    // o "print" com html2canvas — sem isso, se a conexão está um pouco lenta,
-    // o QR Code sai em branco no cartaz, porque a imagem ainda não tinha
-    // carregado no exato instante da captura.
-    const esperarImagens = (el) => Promise.all(
-      [...el.querySelectorAll('img')].map(img => img.complete ? null : new Promise(res => { img.onload = res; img.onerror = res; }))
-    );
-
+    // O cartaz não é mais "fotografado" da tela com html2canvas — depois de pegar
+    // essa biblioteca falhando repetidas vezes pra desenhar essa imagem específica
+    // do QR (mesmo em branco, sem erro nenhum, comprovado pixel a pixel com um
+    // teste à parte), o cartaz agora é desenhado do zero, direto num <canvas>,
+    // com controle total sobre cada elemento. Mais código, mas sem depender de
+    // nenhum comportamento obscuro de terceiro pra algo tão simples.
     const gerarCanvasCartaz = async () => {
-      const el = document.getElementById('qr-cartaz');
-      if (!el || !window.html2canvas) { notificar('Aguarde carregar...', 'info'); return null; }
-      await esperarImagens(el);
-      return window.html2canvas(el, { scale: 3, useCORS: true, backgroundColor: '#ffffff' });
+      if (!qrImagemModal) return null;
+      const nomeRede = conta?.nome_rede || 'PerdaZero';
+      const S = 3; // escala pra qualidade de impressão
+      const W = 320;
+      const canvas = document.createElement('canvas');
+      canvas.width = W * S; canvas.height = 620 * S;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(S, S);
+
+      const arredondado = (x, y, w, h, r) => {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      };
+
+      // Fundo branco do cartaz inteiro (arredondado, como o card original)
+      ctx.fillStyle = '#ffffff';
+      arredondado(0, 0, W, 620, 16);
+      ctx.fill();
+      ctx.save();
+      arredondado(0, 0, W, 620, 16);
+      ctx.clip();
+
+      // Barra verde no topo
+      ctx.fillStyle = '#00A86B';
+      ctx.fillRect(0, 0, W, 8);
+
+      let y = 8 + 24; // padding top (p-6 = 24)
+      const cx = W / 2;
+      ctx.textAlign = 'center';
+
+      ctx.fillStyle = '#00A86B';
+      ctx.font = '700 11px Arial, sans-serif';
+      ctx.fillText(nomeRede.toUpperCase(), cx, y);
+      y += 11 + 10;
+
+      ctx.fillStyle = '#0f172a';
+      ctx.font = '900 22px Arial, sans-serif';
+      ctx.fillText(qrImagemNome, cx, y);
+      y += 22 + 16;
+
+      // Caixa cinza com o QR dentro
+      const qrBoxSize = 220 + 24; // 220 do QR + 12 de padding de cada lado
+      const qrBoxX = cx - qrBoxSize / 2;
+      ctx.fillStyle = '#f8fafc';
+      arredondado(qrBoxX, y, qrBoxSize, qrBoxSize, 16);
+      ctx.fill();
+      ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+      arredondado(qrBoxX, y, qrBoxSize, qrBoxSize, 16);
+      ctx.stroke();
+
+      const qrImg = new Image();
+      await new Promise((res, rej) => { qrImg.onload = res; qrImg.onerror = rej; qrImg.src = qrImagemModal; });
+      ctx.drawImage(qrImg, cx - 110, y + 12, 220, 220);
+      y += qrBoxSize + 20;
+
+      // Linha divisória
+      ctx.strokeStyle = '#f1f5f9'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(24, y); ctx.lineTo(W - 24, y); ctx.stroke();
+      y += 16 + 11;
+
+      ctx.fillStyle = '#374151';
+      ctx.font = '700 11px Arial, sans-serif';
+      ctx.fillText('Como registrar uma perda:', cx, y);
+      y += 12 + 10;
+
+      ctx.textAlign = 'left';
+      ['Aponte a câmera para o QR Code acima', 'Selecione seu nome na lista', 'Registre a perda em menos de 1 minuto'].forEach((passo, i) => {
+        const circY = y - 7;
+        ctx.fillStyle = '#00A86B';
+        ctx.beginPath(); ctx.arc(24 + 10, circY, 10, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 10px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(String(i + 1), 24 + 10, circY + 3.5);
+        ctx.fillStyle = '#6b7280';
+        ctx.font = '400 11px Arial, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(passo, 24 + 28, y);
+        y += 8 + 14;
+      });
+
+      y += 16 - 8;
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = '400 10px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('PerdaZero · perdazero.com.br', cx, y);
+
+      ctx.restore();
+
+      // Recorta o canvas pra altura de verdade usada (sem sobra em branco embaixo)
+      const alturaFinal = Math.ceil((y + 20) * S);
+      const canvasFinal = document.createElement('canvas');
+      canvasFinal.width = canvas.width;
+      canvasFinal.height = alturaFinal;
+      canvasFinal.getContext('2d').drawImage(canvas, 0, 0);
+      return canvasFinal;
     };
 
     const baixarPNG = async () => {
@@ -1061,7 +1156,12 @@ function App() {
               <p style={{color:'#00A86B', fontSize:'11px', fontWeight:'700', letterSpacing:'3px', textTransform:'uppercase', marginBottom:'4px'}}>{conta?.nome_rede || 'PerdaZero'}</p>
               <p style={{color:'#0f172a', fontWeight:'900', fontSize:'22px', marginBottom:'20px'}}>{qrImagemNome}</p>
               <div style={{background:'#f8fafc', borderRadius:'16px', padding:'12px', display:'inline-block', marginBottom:'20px', border:'1px solid #e2e8f0'}}>
-                <img src={qrImagemModal} width="220" height="220" alt="QR Code" crossOrigin="anonymous" style={{display:'block'}}/>
+                {/* Sem crossOrigin: qrImagemModal já é um data: URI local (baixarQR
+                    busca e converte antes de abrir esse modal) — colocar crossOrigin
+                    numa imagem que não é mais externa confundia o html2canvas, que
+                    passava a tratá-la como "insegura" e apagava ela da captura,
+                    mesmo sendo 100% local. Foi essa a causa real do QR sumir. */}
+                <img src={qrImagemModal} width="220" height="220" alt="QR Code" style={{display:'block'}}/>
               </div>
               <div style={{borderTop:'1px solid #f1f5f9', paddingTop:'16px', textAlign:'left'}}>
                 <p style={{fontSize:'11px', fontWeight:'700', color:'#374151', textAlign:'center', marginBottom:'12px'}}>Como registrar uma perda:</p>

@@ -1008,6 +1008,13 @@ function App() {
 
   // Overlay global do modal QR — aparece em qualquer tela do gestor
   if (qrImagemModal) {
+    // O menu de compartilhar (Web Share API) só faz sentido em celular — é lá que
+    // tem WhatsApp, Salvar Fotos etc. No Windows/Mac ele também "funciona", mas
+    // abre a caixa de compartilhamento do próprio sistema operacional (Bluetooth,
+    // OneNote, "Vincular ao Celular"...), que não ajuda em nada quem só quer
+    // baixar o PNG pra imprimir. Por isso o computador vai direto pro download.
+    const ehCelular = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
     const salvarCartaz = async () => {
       const el = document.getElementById('qr-cartaz');
       if (!el || !window.html2canvas) { notificar('Aguarde carregar...', 'info'); return; }
@@ -1015,19 +1022,18 @@ function App() {
         const canvas = await window.html2canvas(el, { scale: 3, useCORS: true, backgroundColor: '#ffffff' });
         canvas.toBlob(async (blob) => {
           const file = new File([blob], 'QR_' + qrImagemNome.replace(/\s+/g,'_') + '.png', { type: 'image/png' });
-          // Web Share API — abre menu nativo do iPhone (salvar foto, WhatsApp, imprimir, etc)
-          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          if (ehCelular && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
             try {
               await navigator.share({ files: [file], title: 'QR Code - ' + qrImagemNome });
             } catch(e) { /* usuário cancelou */ }
           } else {
-            // Fallback para desktop
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = 'QR_' + qrImagemNome.replace(/\s+/g,'_') + '.png';
             a.click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
+            if (!ehCelular) notificar('Imagem baixada! Confira a pasta de Downloads.', 'sucesso');
           }
         }, 'image/png');
       } catch(e) {
@@ -1069,9 +1075,13 @@ function App() {
           {/* Botão salvar */}
           <button onClick={salvarCartaz}
             className="mt-6 w-full max-w-xs bg-brand text-white font-bold py-4 rounded-2xl text-base active:scale-95 transition-transform shadow-lg">
-            📤 Compartilhar / Salvar / Imprimir
+            {ehCelular ? '📤 Compartilhar / Salvar / Imprimir' : '⬇️ Baixar Imagem (PNG)'}
           </button>
-          <p className="text-slate-500 text-xs mt-3 text-center">Abre o menu do iPhone para salvar nas fotos, enviar pelo WhatsApp ou imprimir</p>
+          <p className="text-slate-500 text-xs mt-3 text-center">
+            {ehCelular
+              ? 'Abre o menu do celular para salvar nas fotos, enviar pelo WhatsApp ou imprimir'
+              : 'Baixa o QR em PNG na sua pasta de Downloads — depois é só imprimir ou enviar por onde preferir'}
+          </p>
 
           <button onClick={() => setQrImagemModal(null)}
             className="mt-4 text-slate-600 text-sm py-2">

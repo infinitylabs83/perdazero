@@ -148,6 +148,36 @@ const Ico = {
 };
 
 // ==========================================
+// RASCUNHO DO REGISTRO EM ANDAMENTO (painel do gestor)
+// ==========================================
+// Guarda o que está sendo digitado num registro de perda no sessionStorage,
+// pra sobreviver a um recarregamento inesperado da página — o mais comum é
+// o Chrome descarregar uma aba em segundo plano pra liberar memória e
+// recarregar do zero quando você volta pra ela. sessionStorage (não
+// localStorage) porque some sozinho ao fechar a aba de verdade — não é
+// pra ficar valendo pra sempre, só pra sobreviver a um reload acidental.
+// Não inclui a foto (arquivo não sobrevive a serialização): se havia uma
+// foto escolhida, é preciso tirar de novo.
+const RASCUNHO_KEY = 'perdazero_rascunho_registro';
+const salvarRascunhoRegistro = (reg, flowStep) => {
+  try {
+    const { foto_arquivo, foto_url_local, ...regSemFoto } = reg;
+    sessionStorage.setItem(RASCUNHO_KEY, JSON.stringify({ reg: regSemFoto, flowStep, quando: Date.now() }));
+  } catch (e) { /* sessionStorage indisponível (aba anônima, etc.) — sem problema, só não persiste */ }
+};
+const lerRascunhoRegistro = () => {
+  try {
+    const bruto = sessionStorage.getItem(RASCUNHO_KEY);
+    if (!bruto) return null;
+    const dados = JSON.parse(bruto);
+    // Descarta rascunhos muito velhos (mais de 2h) pra não confundir com algo antigo
+    if (!dados.reg?.produto || Date.now() - dados.quando > 2 * 60 * 60 * 1000) return null;
+    return dados;
+  } catch (e) { return null; }
+};
+const limparRascunhoRegistro = () => { try { sessionStorage.removeItem(RASCUNHO_KEY); } catch (e) {} };
+
+// ==========================================
 // CONTEXTO DE AUTENTICAÇÃO
 // ==========================================
 // Detecção global de recovery — lê da variável global já calculada antes do React
@@ -338,7 +368,20 @@ function App() {
       setSettLogo(p.contas?.logo_rede || null);
       setMetaMensal(p.contas?.meta_mensal || 0);
       await carregarDados(p.conta_id);
-      setView('dashboard');
+      // O Chrome pode descarregar uma aba em segundo plano pra economizar
+      // memória e recarregar a página do zero quando você volta pra ela —
+      // isso não é um login novo, mas o app perdia tudo que estava sendo
+      // digitado. Se havia um registro em andamento salvo localmente,
+      // volta pra ele em vez de ir direto pro painel.
+      const rascunho = lerRascunhoRegistro();
+      if (rascunho) {
+        setReg(rascunho.reg);
+        setFlowStep(rascunho.flowStep);
+        setView('flow_mgr');
+        notificar('Continuando o registro que você estava fazendo.', 'info');
+      } else {
+        setView('dashboard');
+      }
     }
   };
 
@@ -484,7 +527,15 @@ function App() {
     setIsCustomMotivo(false); setCustomMotivo('');
     setShowColegasList(false); setSelectedColega(null); setObsColega('');
     setFlowStep(1);
+    limparRascunhoRegistro(); // começar um registro novo descarta qualquer rascunho antigo
   };
+
+  // Salva o registro em andamento (só no painel do gestor, não no fluxo do QR)
+  // pra sobreviver a um recarregamento inesperado da aba — ver comentário
+  // completo em salvarRascunhoRegistro().
+  useEffect(() => {
+    if (view === 'flow_mgr' && reg.produto) salvarRascunhoRegistro(reg, flowStep);
+  }, [view, reg, flowStep]);
 
   // Aceita uma lista opcional: por padrão filtra a lista paginada (auditoria),
   // mas os cálculos do painel passam `registrosCompletos` (histórico inteiro da conta).
@@ -596,6 +647,7 @@ function App() {
     assinarFotos([data[0]]);
     setIsUploading(false);
     notificar('Perda registrada com sucesso!', 'sucesso');
+    limparRascunhoRegistro();
     resetFlow();
     setView('dashboard');
   };
@@ -1272,7 +1324,7 @@ function App() {
 
     return (
       <div className="flex-1 flex flex-col lg:items-center lg:justify-center lg:bg-slate-200 lg:py-8 min-h-0">
-      <div className="flex-1 flex flex-col bg-gray-50 animate-fade-in min-h-0 lg:flex-none lg:w-full lg:max-w-sm lg:h-full lg:rounded-[2.5rem] lg:shadow-2xl lg:overflow-hidden lg:border-8 lg:border-slate-900 relative">
+      <div className="flex-1 flex flex-col bg-gray-50 animate-fade-in min-h-0 lg:flex-none lg:w-full lg:max-w-md lg:max-h-[90vh] lg:rounded-3xl lg:shadow-xl lg:overflow-hidden relative">
         <Toast/>
         <div className="bg-brand p-6 pt-10 pb-8 rounded-b-[40px] shadow-lg text-white text-center pt-safe flex-shrink-0">
           <LogoRede size={52} />
@@ -1367,7 +1419,7 @@ function App() {
       if (flowStep === 4 && isCustomMotivo) { setIsCustomMotivo(false); setCustomMotivo(''); return; }
       if (flowStep > 1) { setFlowStep(flowStep - 1); return; }
       if (isQRFlow) setView('qr_select_user');
-      else setView('dashboard');
+      else { limparRascunhoRegistro(); setView('dashboard'); }
     };
 
     const proceedToStep5 = (motivo) => {
@@ -1384,7 +1436,7 @@ function App() {
     // maioria dos apps mobile-first faz quando abertos no computador.
     return (
       <div className="flex-1 flex flex-col lg:items-center lg:justify-center lg:bg-slate-200 lg:py-8 min-h-0">
-      <div className="flex-1 flex flex-col bg-white min-h-0 lg:flex-none lg:w-full lg:max-w-sm lg:h-full lg:rounded-[2.5rem] lg:shadow-2xl lg:overflow-hidden lg:border-8 lg:border-slate-900">
+      <div className="flex-1 flex flex-col bg-white min-h-0 lg:flex-none lg:w-full lg:max-w-md lg:max-h-[90vh] lg:rounded-3xl lg:shadow-xl lg:overflow-hidden">
         <Toast/>
         <ConfirmModal/>
         {/* Header */}

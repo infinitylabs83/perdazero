@@ -1816,7 +1816,12 @@ function App() {
           </select>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 hide-scrollbar min-h-0 lg:max-w-3xl lg:mx-auto lg:w-full">
+        <div className="flex-1 overflow-y-auto p-4 pb-24 hide-scrollbar min-h-0">
+        {/* Em telas largas, o conteúdo fica com uma largura confortável de leitura
+            em vez de esticar até a borda — sem isso, linhas "rótulo de um lado,
+            valor do outro" ficavam bem afastadas. Sem centralizar (mx-auto): fica
+            grudado à esquerda, perto da barra lateral, sem vão vazio no meio. */}
+        <div className="space-y-4 lg:max-w-2xl">
 
           {/* MELHORIA 8: Bloqueio por plano */}
           {conta?.plano === 'basico' && lojas.length >= 1 && (
@@ -2131,6 +2136,7 @@ function App() {
             )}
           </div>
         </div>
+        </div>
         <BottomNav/>
       </div></div>
     );
@@ -2236,7 +2242,8 @@ function App() {
           <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
           <h2 className="text-2xl font-bold">Unidades + QR Codes</h2>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 hide-scrollbar min-h-0 lg:max-w-3xl lg:mx-auto lg:w-full">
+        <div className="flex-1 overflow-y-auto p-4 pb-24 hide-scrollbar min-h-0">
+        <div className="space-y-4 lg:max-w-2xl">
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
             <h3 className="text-xs font-bold text-slate-500 mb-4 uppercase tracking-wider">Cadastrar Nova Unidade</h3>
             <input type="text" value={novaLojaNome} onChange={e => setNovaLojaNome(e.target.value)}
@@ -2294,6 +2301,7 @@ function App() {
             ))}
           </div>
         </div>
+        </div>
         <BottomNav/>
       </div></div>
     );
@@ -2342,7 +2350,8 @@ function App() {
           <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
           <h2 className="text-2xl font-bold">Cardápio de Perdas</h2>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 hide-scrollbar min-h-0 lg:max-w-3xl lg:mx-auto lg:w-full">
+        <div className="flex-1 overflow-y-auto p-4 pb-24 hide-scrollbar min-h-0">
+        <div className="space-y-4 lg:max-w-2xl">
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
             <h3 className="text-xs font-bold text-slate-500 mb-4 uppercase tracking-wider">Adicionar Produto</h3>
             <div className="flex gap-2 mb-3">
@@ -2420,6 +2429,7 @@ function App() {
             ))}
           </div>
         </div>
+        </div>
         <BottomNav/>
       </div></div>
     );
@@ -2470,7 +2480,8 @@ function App() {
           <p className="text-brand text-xs font-bold tracking-widest mb-1">GESTÃO</p>
           <h2 className="text-2xl font-bold">Equipe Ativa</h2>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 hide-scrollbar min-h-0 lg:max-w-3xl lg:mx-auto lg:w-full">
+        <div className="flex-1 overflow-y-auto p-4 pb-24 hide-scrollbar min-h-0">
+        <div className="space-y-4 lg:max-w-2xl">
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-6">
             <h3 className="text-xs font-bold text-slate-500 mb-4 uppercase tracking-wider">Cadastrar Colaborador</h3>
             <div className="space-y-3 mb-4">
@@ -2557,6 +2568,7 @@ function App() {
             })}
           </div>
         </div>
+        </div>
         <BottomNav/>
       </div></div>
     );
@@ -2586,7 +2598,8 @@ function App() {
           <p className="text-brand text-xs font-bold tracking-widest mb-1">CONFIGURAÇÕES</p>
           <h2 className="text-2xl font-bold">Ajustes da Conta</h2>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 min-h-0 lg:max-w-3xl lg:mx-auto lg:w-full">
+        <div className="flex-1 overflow-y-auto p-4 pb-24 min-h-0">
+        <div className="space-y-4 lg:max-w-2xl">
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
             <h3 className="text-xs font-bold text-slate-500 mb-4 uppercase tracking-wider">Identidade Visual</h3>
             <div className="mb-5">
@@ -2644,6 +2657,7 @@ function App() {
               ))}
             </div>
           </div>
+        </div>
         </div>
         <BottomNav/>
       </div></div>

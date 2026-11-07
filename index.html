@@ -162,7 +162,7 @@ const RASCUNHO_KEY = 'perdazero_rascunho_registro';
 const salvarRascunhoRegistro = (reg, flowStep) => {
   try {
     const { foto_arquivo, foto_url_local, ...regSemFoto } = reg;
-    sessionStorage.setItem(RASCUNHO_KEY, JSON.stringify({ reg: regSemFoto, flowStep, quando: Date.now() }));
+    sessionStorage.setItem(RASCUNHO_KEY, JSON.stringify({ reg: regSemFoto, flowStep, tinhaFoto: !!foto_arquivo, quando: Date.now() }));
   } catch (e) { /* sessionStorage indisponível (aba anônima, etc.) — sem problema, só não persiste */ }
 };
 const lerRascunhoRegistro = () => {
@@ -265,6 +265,7 @@ function App() {
   const [todosRegistros, setTodosRegistros] = useState([]); // histórico completo da conta (sem o limite de 50 da lista), usado nos cálculos do painel
   const [copiedSlug, setCopiedSlug] = useState(null);
   const fileInputRef = useRef(null);
+  const fotoEnviadaRef = useRef({ arquivo: null, caminho: null }); // foto já enviada nesta tentativa de registro (evita duplicar no retry)
 
   // Gestão produtos/equipe/lojas
   const [novoProdNome, setNovoProdNome] = useState('');
@@ -376,9 +377,16 @@ function App() {
       const rascunho = lerRascunhoRegistro();
       if (rascunho) {
         setReg(rascunho.reg);
-        setFlowStep(rascunho.flowStep);
         setView('flow_mgr');
-        notificar('Continuando o registro que você estava fazendo.', 'info');
+        if (rascunho.tinhaFoto) {
+          // A foto (arquivo) não sobrevive a um recarregamento: volta pro passo
+          // da foto em vez de deixar terminar o registro sem ela sem perceber.
+          setFlowStep(1);
+          notificar('A página recarregou e a foto se perdeu. Tire a foto de novo — o resto foi mantido.', 'info');
+        } else {
+          setFlowStep(rascunho.flowStep);
+          notificar('Continuando o registro que você estava fazendo.', 'info');
+        }
       } else {
         setView('dashboard');
       }
@@ -527,6 +535,7 @@ function App() {
     setIsCustomMotivo(false); setCustomMotivo('');
     setShowColegasList(false); setSelectedColega(null); setObsColega('');
     setFlowStep(1);
+    fotoEnviadaRef.current = { arquivo: null, caminho: null };
     limparRascunhoRegistro(); // começar um registro novo descarta qualquer rascunho antigo
   };
 
@@ -569,7 +578,7 @@ function App() {
   // ==========================================
   // SALVAR REGISTRO DE PERDA (funciona com ou sem login)
   // ==========================================
-  const finalizarRegistro = async (responsavel) => {
+  const finalizarRegistro = async (responsavel, semFoto = false) => {
     setIsUploading(true);
     const lojaAtual = lojaQR || lojas.find(l => l.id === parseInt(filtroLoja)) || lojas[0];
     // conta_id: busca em todas as fontes — conta_id direto, objeto contas aninhado, ou conta logada
@@ -588,11 +597,26 @@ function App() {
     // O bucket de fotos é privado — guardamos só o caminho do arquivo.
     // A URL para exibir é assinada na hora, só para o dono logado (ver assinarFotos()).
     let fotoPath = null;
-    if (reg.foto_arquivo && supabase) {
-      const ext = reg.foto_arquivo.name.split('.').pop();
-      const fname = `${contaId}/${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from('fotos_perdas').upload(fname, reg.foto_arquivo);
-      if (!upErr) fotoPath = fname;
+    if (reg.foto_arquivo && supabase && !semFoto) {
+      if (fotoEnviadaRef.current.arquivo === reg.foto_arquivo) {
+        // Mesma foto já enviada numa tentativa anterior (ex.: o registro falhou
+        // depois do upload) — reaproveita em vez de subir outra cópia.
+        fotoPath = fotoEnviadaRef.current.caminho;
+      } else {
+        const ext = reg.foto_arquivo.name.split('.').pop();
+        const fname = `${contaId}/${Date.now()}.${ext}`;
+        const { error: upErr } = await supabase.storage.from('fotos_perdas').upload(fname, reg.foto_arquivo);
+        if (upErr) {
+          // Antes, uma falha aqui era silenciosa: o registro saía sem foto e
+          // ninguém percebia. Agora pergunta antes de seguir sem a evidência.
+          setIsUploading(false);
+          confirmarAcao('Não consegui enviar a foto. Registrar a perda mesmo assim, sem foto?',
+            () => finalizarRegistro(responsavel, true), { perigoso: false });
+          return;
+        }
+        fotoPath = fname;
+        fotoEnviadaRef.current = { arquivo: reg.foto_arquivo, caminho: fname };
+      }
     }
 
     const qtdNum = parseFloat(reg.qtd.toString().replace(',','.')) || 0;
